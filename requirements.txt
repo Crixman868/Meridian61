@@ -3,7 +3,5 @@ google-auth
 google-api-python-client
 gspread
 pandas
-numpy
-pillow
 openpyxl
-xhtml2pdf
+fpdf2
