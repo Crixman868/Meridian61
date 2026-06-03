@@ -17,7 +17,7 @@ def check_password():
     """Returns True if the user has the correct password."""
     def password_entered():
         # Change 'your_secret_password' to your actual password
-        if st.session_state["password"] == "your_secret_password": 
+        if st.session_state["password"] == "Cocosteaw868": 
             st.session_state["password_correct"] = True
             del st.session_state["password"]
         else:
