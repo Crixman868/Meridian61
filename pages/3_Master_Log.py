@@ -4,11 +4,10 @@ import pandas as pd
 import os
 import base64
 import uuid
+import json
 from datetime import datetime
 import gspread
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 import io
@@ -29,6 +28,16 @@ SHEET_URL = "https://docs.google.com/spreadsheets/d/1ipB1DaIdX_BS_0iSWRHMwHcP-wE
 DRIVE_FOLDER_ID = "19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"
 SCOPES = ['https://www.googleapis.com/auth/drive']
 DOC_DIR = "uploaded_docs"
+
+# --- GOOGLE AUTHENTICATION HELPERS (Uses st.secrets) ---
+def get_gspread_client():
+    creds_dict = json.loads(st.secrets["google_api"]["credentials"])
+    return gspread.service_account_from_dict(creds_dict)
+
+def get_drive_service():
+    creds_dict = json.loads(st.secrets["google_api"]["credentials"])
+    creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    return build('drive', 'v3', credentials=creds)
 
 # --- THE ULTIMATE UNBREAKABLE PDF RENDERER (NOW WITH ZOOM CONTROLS) ---
 def display_pdf(file_path):
@@ -168,7 +177,7 @@ def upload_file_to_drive(drive_service, file_bytes, filename, folder_id):
 
 def load_log_data():
     try:
-        gc = gspread.service_account(filename="credentials.json")
+        gc = get_gspread_client()
         sh = gc.open_by_url(SHEET_URL)
         worksheet = sh.sheet1
         data = worksheet.get_all_records()
@@ -186,7 +195,7 @@ def load_log_data():
 
 def save_log_data(df):
     try:
-        gc = gspread.service_account(filename="credentials.json")
+        gc = get_gspread_client()
         sh = gc.open_by_url(SHEET_URL)
         worksheet = sh.sheet1
         worksheet.clear()
@@ -246,7 +255,6 @@ for idx, row in df_visible.iterrows():
     
     inv_str = str(row.get('Invoice No', ''))
     
-    # FIX: Aligned paths to match Tracker output formatting exactly
     expected_paths = [
         f"[{inv_str}] - Original_Invoice.pdf",
         f"[{inv_str}] - Original_Packing_List.pdf",
@@ -327,7 +335,6 @@ if st.session_state["selected_row_idx"] is not None:
                 df_master.at[target_idx, "Assigned Entry #"] = l_entry_val if l_status == "Yes" else ""
                 df_master.at[target_idx, "Shipment Type"] = new_s_type
                 
-                # FIX: Match the expected tracking console name templates on override save
                 if f_rat:
                     with open(f"{DOC_DIR}/[{inv_target}] - Original_Invoice.pdf", "wb") as f: f.write(f_rat.getbuffer())
                 if f_opk:
@@ -339,16 +346,7 @@ if st.session_state["selected_row_idx"] is not None:
 
                 if f_rat or f_opk or f_trk or f_bl:
                     try:
-                        creds = None
-                        if os.path.exists('token.json'): creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-                        if not creds or not creds.valid:
-                            if creds and creds.expired and creds.refresh_token: creds.refresh(Request())
-                            else:
-                                flow = InstalledAppFlow.from_client_secrets_file('client_secret.json', SCOPES)
-                                creds = flow.run_local_server(port=0)
-                            with open('token.json', 'w') as token: token.write(creds.to_json())
-
-                        drive_service = build('drive', 'v3', credentials=creds)
+                        drive_service = get_drive_service()
                         client_folder_id = get_or_create_client_folder(drive_service, c_name, DRIVE_FOLDER_ID)
                         if f_rat: upload_file_to_drive(drive_service, f_rat.getvalue(), f"[{inv_target}] - {c_name} - Original_Invoice.pdf", client_folder_id)
                         if f_opk: upload_file_to_drive(drive_service, f_opk.getvalue(), f"[{inv_target}] - {c_name} - Original_Packing_List.pdf", client_folder_id)
@@ -364,7 +362,6 @@ if st.session_state["selected_row_idx"] is not None:
         st.write("---")
         st.markdown("### 🗄️ Interactive Security Document Vault")
         
-        # FIX: Complete correction of asset index template dictionary maps
         doc_map = {
             "Original Invoice (Uploaded)": f"{DOC_DIR}/[{inv_target}] - Original_Invoice.pdf",
             "Original Packing List (Uploaded)": f"{DOC_DIR}/[{inv_target}] - Original_Packing_List.pdf",
