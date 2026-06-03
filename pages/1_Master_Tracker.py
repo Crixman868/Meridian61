@@ -5,14 +5,8 @@ import os
 import base64
 import gspread
 import json
-import io
 import jinja2
 import re
-import pdfkit
-from google.oauth2 import service_account
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
 
 # ==========================================
 # ☁️ CONFIGURATION & SECURITY
@@ -20,22 +14,11 @@ from googleapiclient.http import MediaIoBaseUpload
 st.set_page_config(page_title="Master Tracker", page_icon="📦", layout="wide")
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1ipB1DaIdX_BS_0iSWRHMwHcP-wEpfu2pZzFT3nJtlho/edit?gid=0#gid=0"
-DRIVE_FOLDER_ID = "19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"
-SCOPES = ['https://www.googleapis.com/auth/drive']
 
 # --- GOOGLE AUTHENTICATION HELPERS ---
 def get_gspread_client():
     creds_dict = json.loads(st.secrets["google_api"]["credentials"])
     return gspread.service_account_from_dict(creds_dict)
-
-def get_drive_service():
-    try:
-        token_dict = json.loads(st.secrets["google_drive"]["token"])
-        creds = Credentials.from_authorized_user_info(token_dict, SCOPES)
-        return build('drive', 'v3', credentials=creds)
-    except Exception as e:
-        st.error(f"🚨 Missing Human VIP Pass in Secrets: {e}")
-        st.stop()
 
 # --- SECURITY GATEKEEPER VALIDATION ---
 if "logged_in" not in st.session_state or st.session_state["logged_in"] == False:
@@ -49,23 +32,15 @@ for folder in [DOC_DIR, "logos", "signatures", "watermarks", "templates"]:
     if not os.path.exists(folder): 
         os.makedirs(folder)
 
-# --- NATIVE BROWSER PRINT UTILITY ENGINE ---
+# --- MODERN BROWSER PRINT UTILITY ENGINE ---
 def create_print_button(html_content, button_label):
     escaped_html = html_content.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "")
     components_code = f"""
     <div style="display: flex; justify-content: center; margin-bottom: 8px;">
         <button onclick="triggerSystemPrint()" style="
-            width: 100%;
-            background-color: #2b2b2b;
-            color: white;
-            border: 1px solid #4a4a4a;
-            padding: 10px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-weight: bold;
-            font-size: 14px;
-            transition: background-color 0.2s;
-        " onmouseover="this.style.backgroundColor='#444444'" onmouseout="this.style.backgroundColor='#2b2b2b'">🖨️ {button_label}</button>
+            width: 100%; background-color: #2b2b2b; color: white; border: 1px solid #4a4a4a;
+            padding: 10px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px;
+        ">🖨️ {button_label}</button>
     </div>
     <script>
         function triggerSystemPrint() {{
@@ -73,43 +48,17 @@ def create_print_button(html_content, button_label):
             printWindow.document.write('{escaped_html}');
             printWindow.document.close();
             printWindow.focus();
-            setTimeout(function() {{
-                printWindow.print();
-                printWindow.close();
-            }}, 400);
+            setTimeout(function() {{ printWindow.print(); printWindow.close(); }}, 400);
         }}
     </script>
     """
     components.html(components_code, height=55)
 
-# --- PDF CANVAS VIEWER ENGINE ---
-def display_pdf(pdf_bytes, raw_html=None):
-    if raw_html:
-        preview_html = f'<div style="background-color: white; padding: 40px; margin: 10px auto; border-radius: 5px; box-shadow: 0px 4px 10px rgba(0,0,0,0.1); max-width: 900px; color: #333333;">{raw_html}</div>'
-        components.html(preview_html, height=750, scrolling=True)
+def display_html_preview(raw_html):
+    preview_html = f'<div style="background-color: white; padding: 40px; margin: 10px auto; border-radius: 5px; box-shadow: 0px 4px 10px rgba(0,0,0,0.1); max-width: 900px; color: #333333;">{raw_html}</div>'
+    components.html(preview_html, height=750, scrolling=True)
 
-# --- VAULT RUNTIME ENGINES ---
-def get_or_create_client_folder(drive_service, client_name, parent_id):
-    safe_client = client_name.replace("'", "\\'")
-    query = f"name='{safe_client}' and mimeType='application/vnd.google-apps.folder' and '{parent_id}' in parents and trashed=false"
-    response = drive_service.files().list(q=query, fields='files(id)').execute()
-    folders = response.get('files', [])
-    if not folders:
-        return drive_service.files().create(body={'name': client_name, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [parent_id]}, fields='id').execute().get('id')
-    return folders[0].get('id')
-
-def upload_file_to_drive(drive_service, file_bytes, filename, folder_id):
-    safe_file = filename.replace("'", "\\'")
-    query = f"name='{safe_file}' and '{folder_id}' in parents and trashed=false"
-    response = drive_service.files().list(q=query, fields='files(id)').execute()
-    for f in response.get('files', []): 
-        try:
-            drive_service.files().delete(fileId=f.get('id')).execute()
-        except:
-            pass 
-    media = MediaIoBaseUpload(io.BytesIO(bytes(file_bytes)), mimetype='application/pdf', resumable=True)
-    return drive_service.files().create(body={'name': filename, 'parents': [folder_id]}, media_body=media, fields='webViewLink').execute().get('webViewLink', '')
-
+# --- DATABASE RUNTIME ENGINES ---
 def load_log_data():
     try:
         gc = get_gspread_client()
@@ -134,8 +83,7 @@ def get_entity_profile(file_name, entity_name):
         df = pd.read_csv(file_name)
         match = df[df["Name"] == entity_name]
         if not match.empty:
-            for col in df.columns: 
-                profile[col] = match.iloc[0][col]
+            for col in df.columns: profile[col] = match.iloc[0][col]
     return profile
 
 def get_supplier_mapping(supplier):
@@ -151,8 +99,8 @@ def save_supplier_mapping(supplier, desc, qty, price):
     df = pd.concat([df, pd.DataFrame([{"Supplier": supplier, "DescCol": desc, "QtyCol": qty, "PriceCol": price}])], ignore_index=True)
     df.to_csv("supplier_mappings.csv", index=False)
 
-# --- DOCUMENT FACTORY ENGINE (Powered by Real Browser WebKit) ---
-def generate_html_pdf(title, inv_no, date, client, c_addr, supplier, s_profile, bl, total_ctns, df, total_val, freight=None, additional_notes="", payment_terms="", signatory_position="", is_packing=False, is_caricom=False, is_duties=False, duty_data=None):
+# --- DOCUMENT HTML FACTORY (Pure Text/Browser Engine) ---
+def generate_html_document(title, inv_no, date, client, c_addr, supplier, s_profile, bl, total_ctns, df, total_val, freight=None, additional_notes="", payment_terms="", signatory_position="", is_packing=False, is_caricom=False, is_duties=False, duty_data=None):
     logo_path = get_img_b64(f"logos/{s_profile.get('Name', '')}_logo.png")
     sig_path = get_img_b64(f"signatures/{s_profile.get('Name', '')}_sig.png")
 
@@ -160,72 +108,38 @@ def generate_html_pdf(title, inv_no, date, client, c_addr, supplier, s_profile, 
         table_rows = ""
         for idx, row in df.iterrows():
             table_rows += f'<tr><td style="padding:10px; border:1px solid #ccc;">{row.get("SPECIFICATION OF COMMODITIES","N/A")}</td><td style="padding:10px; border:1px solid #ccc; text-align:center;">{row.get("CTNS NOS","N/A")}</td><td style="padding:10px; border:1px solid #ccc; text-align:center;">{row.get("TOTAL CTNS",0)}</td><td style="padding:10px; border:1px solid #ccc; text-align:right;">{int(row.get("QUANTITY",0)):,}</td></tr>'
-        
         img_tag = f'<img src="{logo_path}" height="50">' if logo_path else ''
         sig_tag = f'<img src="{sig_path}" height="80">' if sig_path else ''
-        
         rendered_html = f'<html><body><table width="100%"><tr><td>{img_tag}</td><td align="right"><h2>{title}</h2></td></tr></table><p><b>Exporter:</b> {supplier}<br><b>Consignee:</b> {client}<br>{c_addr}</p><table border="1" width="100%" cellspacing="0" cellpadding="5"><thead><tr bgcolor="#f7f7f7"><th>Description</th><th>Carton Nos</th><th>Total Ctns</th><th>Qty</th></tr></thead><tbody>{table_rows}</tbody></table><br><br><div align="right">{sig_tag}<br><b>{signatory_position}</b></div></body></html>'
-
+    
     elif is_duties:
         duty_data = duty_data or {}
         img_tag = f'<img src="{logo_path}" height="50">' if logo_path else ''
-        
         rendered_html = f'<html><body><table width="100%"><tr><td>{img_tag}</td><td align="right"><h2>{title}</h2></td></tr></table><p><b>Invoice:</b> {inv_no}</p><p>Converted Base Value: ${duty_data.get("convert_to_ttd",0):,.2f} TTD</p><p>Customs Duty: ${duty_data.get("duty_owed",0):,.2f} TTD</p><p>VAT Owed: ${duty_data.get("vat_owed",0):,.2f} TTD</p><br><table border="1" width="100%" cellspacing="0" cellpadding="10"><tr><td bgcolor="#f9f9f9"><h3>Total Customs Bill Due: ${duty_data.get("grand_total_ttd",0):,.2f} TTD</h3></td></tr></table></body></html>'
-        
+    
     else:
         template_env = jinja2.Environment(loader=jinja2.FileSystemLoader(searchpath="./templates"))
         chosen_template = s_profile.get("Template", "classic.html")
-        if not os.path.exists(f"./templates/{chosen_template}"):
-            chosen_template = "classic.html"
-        
-        try:
-            template = template_env.get_template(chosen_template)
-        except:
-            template = template_env.from_string("<h1>{{title}}</h1><p><b>Exporter:</b> {{supplier_name}}<br><b>Consignee:</b> {{client_name}}</p><table border='1' width='100%' cellspacing='0' cellpadding='5'><thead><tr bgcolor='#f2f2f2'><th>Description</th><th>Qty</th><th>Total</th></tr></thead><tbody>{% for item in items %}<tr><td>{{item.Description}}</td><td>{{item.Qty}}</td><td>{{item.Total}}</td></tr>{% endfor %}</tbody></table>")
+        if not os.path.exists(f"./templates/{chosen_template}"): chosen_template = "classic.html"
+        try: template = template_env.get_template(chosen_template)
+        except: template = template_env.from_string("<h1>{{title}}</h1><p><b>Exporter:</b> {{supplier_name}}<br><b>Consignee:</b> {{client_name}}</p><table border='1' width='100%' cellspacing='0' cellpadding='5'><thead><tr bgcolor='#f2f2f2'><th>Description</th><th>Qty</th><th>Total</th></tr></thead><tbody>{% for item in items %}<tr><td>{{item.Description}}</td><td>{{item.Qty}}</td><td>{{item.Total}}</td></tr>{% endfor %}</tbody></table>")
 
         items = []
         for idx, row in df.iterrows():
             desc = str(row["Description"])[:250]
-            qty_val = row.get("Qty", "")
-            price_val = row.get("UnitPrice", "")
-            total_val_row = row.get("Total Foreign (USD)", "")
-            
-            qty = f"{qty_val:,}" if pd.notna(qty_val) and qty_val != "" else ""
-            price = f"{price_val:.2f}" if pd.notna(price_val) and price_val != "" else ""
-            total = f"{total_val_row:.2f}" if pd.notna(total_val_row) and total_val_row != "" else ""
+            qty = f"{row.get('Qty', ''):,}" if pd.notna(row.get('Qty')) and row.get('Qty') != "" else ""
+            price = f"{row.get('UnitPrice', ''):.2f}" if pd.notna(row.get('UnitPrice')) and row.get('UnitPrice') != "" else ""
+            total = f"{row.get('Total Foreign (USD)', ''):.2f}" if pd.notna(row.get('Total Foreign (USD)')) and row.get('Total Foreign (USD)') != "" else ""
             items.append({"Description": desc, "Qty": qty, "UnitPrice": price, "Total": total})
             
         rendered_html = template.render({"title": title, "inv_no": inv_no, "date": date, "client_name": client, "client_address": c_addr, "supplier_name": supplier, "supplier_address": s_profile.get("Address", "Main Office Hub"), "bl": bl, "total_ctns": total_ctns, "payment_terms": payment_terms, "additional_notes": additional_notes, "is_caricom": is_caricom, "primary_hex": s_profile.get("PrimaryHex", "#0A2240"), "logo_path": logo_path, "sig_path": sig_path, "signatory_position": signatory_position, "subtotal": f"{total_val:,.2f}", "freight": (f"{freight:,.2f}" if freight else None), "grand_total": f"{(total_val + (freight or 0)):,.2f}", "items": items})
         rendered_html = re.sub(r'>\$\s*<', '><', rendered_html)
 
-    # 🚀 REAL BROWSER ENGINE EXECUTION 🚀
-    try:
-        options = {
-            'page-size': 'Letter',
-            'margin-top': '0.5in',
-            'margin-right': '0.5in',
-            'margin-bottom': '0.5in',
-            'margin-left': '0.5in',
-            'encoding': "UTF-8",
-            'enable-local-file-access': ""
-        }
-        
-        if os.path.exists('/usr/bin/wkhtmltopdf'):
-            config = pdfkit.configuration(wkhtmltopdf='/usr/bin/wkhtmltopdf')
-            pdf_bytes = pdfkit.from_string(rendered_html, False, options=options, configuration=config)
-        else:
-            pdf_bytes = pdfkit.from_string(rendered_html, False, options=options)
-            
-    except Exception as e:
-        pdf_bytes = f"PDF ENGINE SECURE FALLBACK LOG:\n\nCould not execute WebKit. Error: {e}".encode('utf-8')
-
-    return pdf_bytes, rendered_html
-
+    return rendered_html
 
 # --- MAIN UI ---
 client_file = "clients.csv"
 supplier_file = "suppliers.csv"
-
 client_options = ["Select a Client..."] + sorted(pd.read_csv(client_file)["Name"].dropna().tolist()) if os.path.exists(client_file) and os.path.getsize(client_file) > 0 else ["Select a Client..."]
 supplier_options = ["Select a Supplier..."] + sorted(pd.read_csv(supplier_file)["Name"].dropna().tolist()) if os.path.exists(supplier_file) and os.path.getsize(supplier_file) > 0 else ["Select a Supplier..."]
 
@@ -313,31 +227,22 @@ with col2:
         
         with t_inv:
             if st.button("⚙️ Compile Invoice"): 
-                st.session_state["p_inv"], st.session_state["h_inv"] = generate_html_pdf("COMMERCIAL INVOICE", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_clean, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position)
-            if "p_inv" in st.session_state and "h_inv" in st.session_state: 
+                st.session_state["h_inv"] = generate_html_document("COMMERCIAL INVOICE", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_clean, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position)
+            if "h_inv" in st.session_state: 
                 create_print_button(st.session_state["h_inv"], "Export / Open System Print Wizard")
-                display_pdf(st.session_state["p_inv"], st.session_state["h_inv"])
+                display_html_preview(st.session_state["h_inv"])
                 
         with t_car:
             if st.button("⚙️ Compile CARICOM"): 
-                df_caricom = pd.DataFrame([{
-                    "Description": f"{additional_notes} as per invoice # {invoice_num}, dated: {invoice_date}",
-                    "Qty": "", "UnitPrice": "", "Total Foreign (USD)": ""
-                }])
-                
-                st.session_state["p_car"], st.session_state["h_car"] = generate_html_pdf("CARICOM INVOICE", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_caricom, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_caricom=True)
-            if "p_car" in st.session_state and "h_car" in st.session_state: 
+                df_caricom = pd.DataFrame([{"Description": f"{additional_notes} as per invoice # {invoice_num}, dated: {invoice_date}", "Qty": "", "UnitPrice": "", "Total Foreign (USD)": ""}])
+                st.session_state["h_car"] = generate_html_document("CARICOM INVOICE", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_caricom, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_caricom=True)
+            if "h_car" in st.session_state: 
                 create_print_button(st.session_state["h_car"], "Export / Open System Print Wizard")
-                display_pdf(st.session_state["p_car"], st.session_state["h_car"])
+                display_html_preview(st.session_state["h_car"])
                 
         with t_pck:
             st.markdown("##### Interactive Packing Line Sheet")
-            edited_pck_df = st.data_editor(
-                st.session_state["pck_working_df"],
-                disabled=["SPECIFICATION OF COMMODITIES", "QUANTITY"],
-                key="pck_table_editor",
-                use_container_width=True
-            )
+            edited_pck_df = st.data_editor(st.session_state["pck_working_df"], disabled=["SPECIFICATION OF COMMODITIES", "QUANTITY"], key="pck_table_editor", use_container_width=True)
             st.session_state["pck_working_df"] = edited_pck_df
 
             calculated_rows = []
@@ -348,77 +253,59 @@ with col2:
                     end_box = box_cursor + assigned_ctns - 1
                     range_str = f"{box_cursor}-{end_box}" if box_cursor != end_box else f"{box_cursor}"
                     box_cursor = end_box + 1
-                else:
-                    range_str = "0"
-                
-                calculated_rows.append({
-                    "SPECIFICATION OF COMMODITIES": row["SPECIFICATION OF COMMODITIES"],
-                    "QUANTITY": row["QUANTITY"],
-                    "TOTAL CTNS": assigned_ctns,
-                    "CTNS NOS": range_str
-                })
+                else: range_str = "0"
+                calculated_rows.append({"SPECIFICATION OF COMMODITIES": row["SPECIFICATION OF COMMODITIES"], "QUANTITY": row["QUANTITY"], "TOTAL CTNS": assigned_ctns, "CTNS NOS": range_str})
             df_p_compiled = pd.DataFrame(calculated_rows)
             st.session_state["df_p_compiled"] = df_p_compiled
 
             if st.button("⚙️ Compile Packing List"): 
-                st.session_state["p_pck"], st.session_state["h_pck"] = generate_html_pdf("PACKING LIST MANIFEST", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_p_compiled, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_packing=True)
-            if "p_pck" in st.session_state and "h_pck" in st.session_state: 
+                st.session_state["h_pck"] = generate_html_document("PACKING LIST MANIFEST", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_p_compiled, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_packing=True)
+            if "h_pck" in st.session_state: 
                 create_print_button(st.session_state["h_pck"], "Export / Open System Print Wizard")
-                display_pdf(st.session_state["p_pck"], st.session_state["h_pck"])
+                display_html_preview(st.session_state["h_pck"])
                 
         with t_dut:
             if st.button("⚙️ Compile Customs Summary"): 
-                st.session_state["p_dut"], st.session_state["h_dut"] = generate_html_pdf("OFFICIAL DUTIES ASSESSMENT", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, st.session_state.get("df_p_compiled", df_clean), subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_duties=True, duty_data=duty_dict)
-            if "p_dut" in st.session_state and "h_dut" in st.session_state: 
+                st.session_state["h_dut"] = generate_html_document("OFFICIAL DUTIES ASSESSMENT", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, st.session_state.get("df_p_compiled", df_clean), subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_duties=True, duty_data=duty_dict)
+            if "h_dut" in st.session_state: 
                 create_print_button(st.session_state["h_dut"], "Export / Open System Print Wizard")
-                display_pdf(st.session_state["p_dut"], st.session_state["h_dut"])
+                display_html_preview(st.session_state["h_dut"])
 
-        # --- MASTER CLOUD & LOCAL SYNCHRONIZATION SWITCH ---
+        # --- MASTER LOG DATABASE SYNCHRONIZATION ONLY ---
         st.write("---")
-        if st.button("💾 Commit Ingestion & Sync Cloud Vault Bundle", type="primary", use_container_width=True):
+        if st.button("💾 Commit Data to Master Log Database", type="primary", use_container_width=True):
             if client_name != "Select a Client..." and supplier_name != "Select a Supplier...":
-                with st.spinner("Executing synchronization across cloud vaults and local log files..."):
-                    
-                    df_caricom = pd.DataFrame([{
-                        "Description": f"{additional_notes} as per invoice # {invoice_num}, dated: {invoice_date}",
-                        "Qty": "", "UnitPrice": "", "Total Foreign (USD)": ""
-                    }])
-                    
-                    p_i, _ = generate_html_pdf("COMMERCIAL INVOICE", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_clean, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position)
-                    p_c, _ = generate_html_pdf("CARICOM INVOICE", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_caricom, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_caricom=True)
-                    p_p, _ = generate_html_pdf("PACKING LIST MANIFEST", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, st.session_state.get("df_p_compiled", df_clean), subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_packing=True)
-                    p_d, _ = generate_html_pdf("OFFICIAL DUTIES ASSESSMENT", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, st.session_state.get("df_p_compiled", df_clean), subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_duties=True, duty_data=duty_dict)
-                    
-                    with open(f"uploaded_docs/[{invoice_num}] - Commercial_Invoice.pdf", "wb") as f: f.write(p_i)
-                    with open(f"uploaded_docs/[{invoice_num}] - CARICOM_Invoice.pdf", "wb") as f: f.write(p_c)
-                    with open(f"uploaded_docs/[{invoice_num}] - Packing_List.pdf", "wb") as f: f.write(p_p)
-                    with open(f"uploaded_docs/[{invoice_num}] - Duties_Assessment.pdf", "wb") as f: f.write(p_d)
-                    
-                    try:
-                        drive_service = get_drive_service()
-                        f_id = get_or_create_client_folder(drive_service, client_name, DRIVE_FOLDER_ID)
-                        u_i = upload_file_to_drive(drive_service, p_i, f"[{invoice_num}] - Commercial_Invoice.pdf", f_id)
-                        u_c = upload_file_to_drive(drive_service, p_c, f"[{invoice_num}] - CARICOM_Invoice.pdf", f_id)
-                        u_p = upload_file_to_drive(drive_service, p_p, f"[{invoice_num}] - Packing_List.pdf", f_id)
-                        u_d = upload_file_to_drive(drive_service, p_d, f"[{invoice_num}] - Duties_Assessment.pdf", f_id)
-                    except Exception as drive_err:
-                        st.error(f"🚨 Google Drive Upload Failed: {drive_err}")
-                        st.stop()
-
+                with st.spinner("Logging shipment data to the Master Log..."):
                     try:
                         df_all = load_log_data()
                         new_row = {
-                            "Invoice No": str(invoice_num), "Invoice Date": str(invoice_date), "BL#": str(bl_number), 
-                            "Client Name": str(client_name), "Supplier": str(supplier_name), "Total C&F (USD)": float(subtotal_foreign+freight_cost), 
-                            "Total CTNS": int(container_total_ctns), "Exchange Rate": float(exchange_rate), "Duty TTD": float(duty_dict['duty_owed']), 
-                            "VAT TTD": float(duty_dict['vat_owed']), "Total Customs Bill TTD": float(grand_total_ttd), "Job State": "Open", 
-                            "Shipment Type": str(special_indicator), "Commercial Invoice": str(u_i), "CARICOM Invoice": str(u_c), 
-                            "Sequential Packing List": str(u_p), "Duties Assessment": str(u_d)
+                            "Invoice No": str(invoice_num), 
+                            "Invoice Date": str(invoice_date), 
+                            "BL#": str(bl_number), 
+                            "Client Name": str(client_name), 
+                            "Supplier": str(supplier_name), 
+                            "Total C&F (USD)": float(subtotal_foreign+freight_cost), 
+                            "Total CTNS": int(container_total_ctns), 
+                            "Exchange Rate": float(exchange_rate), 
+                            "Duty TTD": float(duty_dict['duty_owed']), 
+                            "VAT TTD": float(duty_dict['vat_owed']), 
+                            "Total Customs Bill TTD": float(grand_total_ttd), 
+                            "Job State": "Open", 
+                            "Shipment Type": str(special_indicator), 
+                            "Commercial Invoice": "Pending Upload", 
+                            "CARICOM Invoice": "Pending Upload", 
+                            "Sequential Packing List": "Pending Upload", 
+                            "Duties Assessment": "Pending Upload"
                         }
                         
-                        df_all = pd.concat([df_all[df_all["Invoice No"].astype(str) != str(invoice_num)] if not df_all.empty else df_all, pd.DataFrame([new_row])], ignore_index=True)
+                        # Replace old row if same invoice number exists, else append
+                        if not df_all.empty and "Invoice No" in df_all.columns:
+                            df_all = pd.concat([df_all[df_all["Invoice No"].astype(str) != str(invoice_num)], pd.DataFrame([new_row])], ignore_index=True)
+                        else:
+                            df_all = pd.DataFrame([new_row])
+                            
                         save_log_data(df_all)
-                        st.success("🎉 Enterprise Cloud Sync & Local Storage Verification Complete!")
+                        st.success("🎉 Shipment data successfully committed! Please proceed to the Master Log to manually upload your PDFs.")
                         st.balloons()
                     except Exception as sheet_err:
                         st.error(f"Database Integration Error: {sheet_err}")
