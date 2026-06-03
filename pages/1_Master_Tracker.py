@@ -27,9 +27,13 @@ DRIVE_FOLDER_ID = "19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
 # --- GOOGLE AUTHENTICATION HELPERS (Uses st.secrets) ---
-def get_gspread_client():
-    creds_dict = json.loads(st.secrets["google_api"]["credentials"])
-    return gspread.service_account_from_dict(creds_dict)
+from google.oauth2.credentials import Credentials
+
+def get_drive_service():
+    # Uses your Human VIP pass from the vault so you don't run out of storage!
+    token_dict = json.loads(st.secrets["google_drive_human"]["token"])
+    creds = Credentials.from_authorized_user_info(token_dict, SCOPES)
+    return build('drive', 'v3', credentials=creds)
 
 def get_drive_service():
     creds_dict = json.loads(st.secrets["google_api"]["credentials"])
