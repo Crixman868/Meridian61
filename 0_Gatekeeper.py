@@ -1,50 +1,47 @@
 import streamlit as st
+import json
+from google.oauth2 import service_account
 
-st.set_page_config(page_title="Meridian 61 - Login", page_icon="🧭", layout="centered")
+# 1. SETUP THE FRONT DOOR
+st.set_page_config(page_title="Meridian 61", page_icon="🔐")
 
-st.title("🧭 Meridian 61 Logistics")
-st.subheader("Secure Gateway")
-st.write("---") 
+# 2. CONNECT THE GOOGLE ROBOT TO THE VAULT
+# This tells the robot: "Look in the Secret Box for the credentials"
+def get_google_creds():
+    # json.loads turns the secret text into a format the robot understands
+    creds_dict = json.loads(st.secrets["google_api"]["credentials"])
+    return service_account.Credentials.from_service_account_info(creds_dict)
 
-# 1. Turn on the computer's memory for both login status AND their specific role
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
-    st.session_state["role"] = None  # NEW: Blank nametag to start
-
-# 2. Login Logic
-if st.session_state["logged_in"] == False:
-    username = st.text_input("Authorized Username")
-    password = st.text_input("Secure Password", type="password")
-
-    if st.button("Secure Launch"):
-        # YOUR ACCOUNT (Master Control)
-        if username == "admin" and password == "meridian":
-            st.session_state["logged_in"] = True
-            st.session_state["role"] = "admin"
-            st.rerun()
-            
-        # STAFF ACCOUNT (Customs Submissions)
-        elif username == "staff" and password == "customs":
-            st.session_state["logged_in"] = True
-            st.session_state["role"] = "staff"
-            st.rerun()
-            
-        # CLIENT ACCOUNT (Read-Only)
-        elif username == "client" and password == "viewonly":
-            st.session_state["logged_in"] = True
-            st.session_state["role"] = "client"
-            st.rerun()
-            
+# 3. LOGIN LOGIC (Your Front Door)
+def check_password():
+    """Returns True if the user has the correct password."""
+    def password_entered():
+        # Change 'your_secret_password' to your actual password
+        if st.session_state["password"] == "your_secret_password": 
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
         else:
-            st.error("Access Denied. Incorrect credentials.")
+            st.session_state["password_correct"] = False
 
-# 3. Welcome Screen
-if st.session_state["logged_in"] == True:
-    # Notice how this now greets you by your specific role!
-    st.success(f"Access Granted! You are securely connected as: {st.session_state['role'].upper()}")
-    st.info("👈 Please select a workspace from the sidebar to begin.")
+    if "password_correct" not in st.session_state:
+        # Show login screen
+        st.title("Meridian 61 Logistics")
+        st.subheader("Secure Gateway")
+        st.text_input("Secure Password", type="password", on_change=password_entered, key="password")
+        return False
+    elif not st.session_state["password_correct"]:
+        # Show error if wrong
+        st.error("😕 Password incorrect")
+        st.text_input("Secure Password", type="password", on_change=password_entered, key="password")
+        return False
+    else:
+        # Password is correct!
+        return True
+
+# 4. LET THEM IN
+if check_password():
+    # If login works, the robot gets the keys from the vault
+    creds = get_google_creds()
     
-    if st.button("Secure Log Out"):
-        st.session_state["logged_in"] = False
-        st.session_state["role"] = None
-        st.rerun()
+    st.success("Welcome, Authorized User!")
+    st.write("You are now in the system. Use the sidebar to track shipments.")
