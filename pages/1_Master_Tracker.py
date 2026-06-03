@@ -5,19 +5,19 @@ import os
 import base64
 import gspread
 import json
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
 import io
 import jinja2
 import re
-# from xhtml2pdf import pisa  <-- COMMENTED OUT TO FIX DEPLOYMENT CRASH
+from fpdf import FPDF
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
 
+# ==========================================
+# ☁️ CONFIGURATION & SECURITY
+# ==========================================
 st.set_page_config(page_title="Master Tracker", page_icon="📦", layout="wide")
 
-# ==========================================
-# ☁️ CLOUD DATABASE & VAULT SETTINGS
-# ==========================================
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1ipB1DaIdX_BS_0iSWRHMwHcP-wEpfu2pZzFT3nJtlho/edit?gid=0#gid=0"
 DRIVE_FOLDER_ID = "19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"
 SCOPES = ['https://www.googleapis.com/auth/drive']
@@ -82,8 +82,6 @@ def display_pdf(pdf_bytes, raw_html=None):
     if raw_html:
         preview_html = f'<div style="background-color: white; padding: 40px; margin: 10px auto; border-radius: 5px; box-shadow: 0px 4px 10px rgba(0,0,0,0.1); max-width: 900px; color: #333333;">{raw_html}</div>'
         components.html(preview_html, height=750, scrolling=True)
-        return
-    st.warning("PDF Viewer is currently offline (PDF engine migration in progress).")
 
 # --- VAULT RUNTIME ENGINES ---
 def get_or_create_client_folder(drive_service, client_name, parent_id):
@@ -145,15 +143,77 @@ def save_supplier_mapping(supplier, desc, qty, price):
     df = pd.concat([df, pd.DataFrame([{"Supplier": supplier, "DescCol": desc, "QtyCol": qty, "PriceCol": price}])], ignore_index=True)
     df.to_csv("supplier_mappings.csv", index=False)
 
-# --- DOCUMENT FACTORY ENGINE ---
+# --- DOCUMENT FACTORY ENGINE (Powered by fpdf2) ---
 def generate_html_pdf(title, inv_no, date, client, c_addr, supplier, s_profile, bl, total_ctns, df, total_val, freight=None, additional_notes="", payment_terms="", signatory_position="", is_packing=False, is_caricom=False, is_duties=False, duty_data=None):
-    st.warning("PDF Engine is currently offline. Document preview generated safely.")
-    # Returns empty bytes for PDF, but renders a basic HTML placeholder to keep the UI from crashing
-    return b"", f"<h1>{title}</h1><p>Invoice: {inv_no}</p><p>Preview mode activated. PDF downloads disabled.</p>"
+    logo_path = get_img_b64(f"logos/{s_profile.get('Name', '')}_logo.png")
+    sig_path = get_img_b64(f"signatures/{s_profile.get('Name', '')}_sig.png")
 
-# --- REGISTRY SELECTION DICTIONARIES ---
-client_options = ["Select a Client..."] + sorted(pd.read_csv("clients.csv")["Name"].dropna().tolist()) if os.path.exists("clients.csv") and os.path.getsize("clients.csv") > 0 else ["Select a Client..."]
-supplier_options = ["Select a Supplier..."] + sorted(pd.read_csv("suppliers.csv")["Name"].dropna().tolist()) if os.path.exists("suppliers.csv") and os.path.getsize("suppliers.csv") > 0 else ["Select a Supplier..."]
+    if is_packing:
+        table_rows = ""
+        for idx, row in df.iterrows():
+            table_rows += f'<tr><td style="padding:10px; border:1px solid #ccc;">{row.get("SPECIFICATION OF COMMODITIES","N/A")}</td><td style="padding:10px; border:1px solid #ccc; text-align:center;">{row.get("CTNS NOS","N/A")}</td><td style="padding:10px; border:1px solid #ccc; text-align:center;">{row.get("TOTAL CTNS",0)}</td><td style="padding:10px; border:1px solid #ccc; text-align:right;">{int(row.get("QUANTITY",0)):,}</td></tr>'
+        
+        img_tag = f'<img src="{logo_path}" height="50">' if logo_path else ''
+        sig_tag = f'<img src="{sig_path}" height="80">' if sig_path else ''
+        
+        rendered_html = f'<html><body><table width="100%"><tr><td>{img_tag}</td><td align="right"><h2>{title}</h2></td></tr></table><p><b>Exporter:</b> {supplier}<br><b>Consignee:</b> {client}<br>{c_addr}</p><table border="1" width="100%" cellspacing="0" cellpadding="5"><thead><tr bgcolor="#f7f7f7"><th>Description</th><th>Carton Nos</th><th>Total Ctns</th><th>Qty</th></tr></thead><tbody>{table_rows}</tbody></table><br><br><div align="right">{sig_tag}<br><b>{signatory_position}</b></div></body></html>'
+
+    elif is_duties:
+        duty_data = duty_data or {}
+        img_tag = f'<img src="{logo_path}" height="50">' if logo_path else ''
+        
+        rendered_html = f'<html><body><table width="100%"><tr><td>{img_tag}</td><td align="right"><h2>{title}</h2></td></tr></table><p><b>Invoice:</b> {inv_no}</p><p>Converted Base Value: ${duty_data.get("convert_to_ttd",0):,.2f} TTD</p><p>Customs Duty: ${duty_data.get("duty_owed",0):,.2f} TTD</p><p>VAT Owed: ${duty_data.get("vat_owed",0):,.2f} TTD</p><br><table border="1" width="100%" cellspacing="0" cellpadding="10"><tr><td bgcolor="#f9f9f9"><h3>Total Customs Bill Due: ${duty_data.get("grand_total_ttd",0):,.2f} TTD</h3></td></tr></table></body></html>'
+        
+    else:
+        template_env = jinja2.Environment(loader=jinja2.FileSystemLoader(searchpath="./templates"))
+        chosen_template = s_profile.get("Template", "classic.html")
+        if not os.path.exists(f"./templates/{chosen_template}"):
+            chosen_template = "classic.html"
+        
+        try:
+            template = template_env.get_template(chosen_template)
+        except:
+            template = template_env.from_string("<h1>{{title}}</h1><p><b>Exporter:</b> {{supplier_name}}<br><b>Consignee:</b> {{client_name}}</p><table border='1' width='100%' cellspacing='0' cellpadding='5'><thead><tr bgcolor='#f2f2f2'><th>Description</th><th>Qty</th><th>Total</th></tr></thead><tbody>{% for item in items %}<tr><td>{{item.Description}}</td><td>{{item.Qty}}</td><td>{{item.Total}}</td></tr>{% endfor %}</tbody></table>")
+
+        items = []
+        for idx, row in df.iterrows():
+            desc = str(row["Description"])[:250]
+            qty_val = row.get("Qty", "")
+            price_val = row.get("UnitPrice", "")
+            total_val_row = row.get("Total Foreign (USD)", "")
+            
+            qty = f"{qty_val:,}" if pd.notna(qty_val) and qty_val != "" else ""
+            price = f"{price_val:.2f}" if pd.notna(price_val) and price_val != "" else ""
+            total = f"{total_val_row:.2f}" if pd.notna(total_val_row) and total_val_row != "" else ""
+            items.append({"Description": desc, "Qty": qty, "UnitPrice": price, "Total": total})
+            
+        rendered_html = template.render({"title": title, "inv_no": inv_no, "date": date, "client_name": client, "client_address": c_addr, "supplier_name": supplier, "supplier_address": s_profile.get("Address", "Main Office Hub"), "bl": bl, "total_ctns": total_ctns, "payment_terms": payment_terms, "additional_notes": additional_notes, "is_caricom": is_caricom, "primary_hex": s_profile.get("PrimaryHex", "#0A2240"), "logo_path": logo_path, "sig_path": sig_path, "signatory_position": signatory_position, "subtotal": f"{total_val:,.2f}", "freight": (f"{freight:,.2f}" if freight else None), "grand_total": f"{(total_val + (freight or 0)):,.2f}", "items": items})
+        rendered_html = re.sub(r'>\$\s*<', '><', rendered_html)
+
+    # Convert HTML to PDF using fpdf2
+    try:
+        pdf = FPDF()
+        pdf.add_page()
+        cleaned_html = re.sub(r'<style\b[^>]*>[\s\S]*?</style>', '', rendered_html, flags=re.IGNORECASE)
+        cleaned_html = cleaned_html.replace('src=""', '')
+        pdf.write_html(cleaned_html)
+        pdf_bytes = bytes(pdf.output())
+    except Exception as e:
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("helvetica", size=12)
+        pdf.multi_cell(0, 10, f"DOCUMENT: {title}\nINVOICE: {inv_no}\n\nNotice: Detailed HTML rendering failed. Please use the 'Export / Print Wizard' button in the app for the fully formatted document.\n\nSystem Error: {e}")
+        pdf_bytes = bytes(pdf.output())
+
+    return pdf_bytes, rendered_html
+
+
+# --- MAIN UI ---
+client_file = "clients.csv"
+supplier_file = "suppliers.csv"
+
+client_options = ["Select a Client..."] + sorted(pd.read_csv(client_file)["Name"].dropna().tolist()) if os.path.exists(client_file) and os.path.getsize(client_file) > 0 else ["Select a Client..."]
+supplier_options = ["Select a Supplier..."] + sorted(pd.read_csv(supplier_file)["Name"].dropna().tolist()) if os.path.exists(supplier_file) and os.path.getsize(supplier_file) > 0 else ["Select a Supplier..."]
 
 st.write("---")
 col1, col2 = st.columns([1, 1.3])
@@ -224,7 +284,6 @@ with col2:
         grand_total_ttd = duty_owed + vat_owed + ces_fee + uf_fee
         duty_dict = {'exchange_rate': exchange_rate, 'convert_to_ttd': convert_to_ttd, 'duty_owed': duty_owed, 'vat_owed': vat_owed, 'fixed_fees': ces_fee + uf_fee, 'grand_total_ttd': grand_total_ttd}
         
-        # --- INLINE DATA SHEET SEEDING LOGIC FOR PACKING MANIFEST ---
         file_state_hash = f"{uploaded_file.name}_{supplier_name}_{client_name}"
         if "active_file_hash" not in st.session_state or st.session_state["active_file_hash"] != file_state_hash:
             st.session_state["active_file_hash"] = file_state_hash
@@ -247,7 +306,6 @@ with col2:
                 
         with t_car:
             if st.button("⚙️ Compile CARICOM"): 
-                # Create a specific grid: Only the declaration string in the description field, everything else blank
                 df_caricom = pd.DataFrame([{
                     "Description": f"{additional_notes} as per invoice # {invoice_num}, dated: {invoice_date}",
                     "Qty": "", "UnitPrice": "", "Total Foreign (USD)": ""
@@ -307,7 +365,6 @@ with col2:
             if client_name != "Select a Client..." and supplier_name != "Select a Supplier...":
                 with st.spinner("Executing synchronization across cloud vaults and local log files..."):
                     try:
-                        # USING SAFE CLOUD CREDENTIALS INSTEAD OF LOCAL AUTH!
                         drive_service = get_drive_service()
                         f_id = get_or_create_client_folder(drive_service, client_name, DRIVE_FOLDER_ID)
                         
@@ -321,19 +378,16 @@ with col2:
                         p_p, _ = generate_html_pdf("PACKING LIST MANIFEST", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, st.session_state.get("df_p_compiled", df_clean), subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_packing=True)
                         p_d, _ = generate_html_pdf("OFFICIAL DUTIES ASSESSMENT", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, st.session_state.get("df_p_compiled", df_clean), subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_duties=True, duty_data=duty_dict)
                         
-                        # Stream 1: Local Laptop Storage Verification Updates
                         with open(f"uploaded_docs/[{invoice_num}] - Commercial_Invoice.pdf", "wb") as f: f.write(p_i)
                         with open(f"uploaded_docs/[{invoice_num}] - CARICOM_Invoice.pdf", "wb") as f: f.write(p_c)
                         with open(f"uploaded_docs/[{invoice_num}] - Packing_List.pdf", "wb") as f: f.write(p_p)
                         with open(f"uploaded_docs/[{invoice_num}] - Duties_Assessment.pdf", "wb") as f: f.write(p_d)
                         
-                        # Stream 2: Google Drive Storage Vaulting
                         u_i = upload_file_to_drive(drive_service, p_i, f"[{invoice_num}] - Commercial_Invoice.pdf", f_id)
                         u_c = upload_file_to_drive(drive_service, p_c, f"[{invoice_num}] - CARICOM_Invoice.pdf", f_id)
                         u_p = upload_file_to_drive(drive_service, p_p, f"[{invoice_num}] - Packing_List.pdf", f_id)
                         u_d = upload_file_to_drive(drive_service, p_d, f"[{invoice_num}] - Duties_Assessment.pdf", f_id)
                         
-                        # Stream 3: Google Sheets Ledger Registry Updates
                         df_all = load_log_data()
                         new_row = {
                             "Invoice No": str(invoice_num), "Invoice Date": str(invoice_date), "BL#": str(bl_number), 
