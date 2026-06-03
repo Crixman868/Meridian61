@@ -18,6 +18,10 @@ from googleapiclient.http import MediaIoBaseUpload
 # ==========================================
 st.set_page_config(page_title="Master Tracker", page_icon="📦", layout="wide")
 
+# --- TEMPORARY EMAIL FINDER ---
+creds_dict = json.loads(st.secrets["google_api"]["credentials"])
+st.info(f"🤖 My Robot Email Address is: **{creds_dict.get('client_email')}**")
+
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1ipB1DaIdX_BS_0iSWRHMwHcP-wEpfu2pZzFT3nJtlho/edit?gid=0#gid=0"
 DRIVE_FOLDER_ID = "19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"
 SCOPES = ['https://www.googleapis.com/auth/drive']
