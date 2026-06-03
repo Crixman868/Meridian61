@@ -10,6 +10,7 @@ import jinja2
 import re
 from fpdf import FPDF
 from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
@@ -18,27 +19,25 @@ from googleapiclient.http import MediaIoBaseUpload
 # ==========================================
 st.set_page_config(page_title="Master Tracker", page_icon="📦", layout="wide")
 
-# --- TEMPORARY EMAIL FINDER ---
-creds_dict = json.loads(st.secrets["google_api"]["credentials"])
-st.info(f"🤖 My Robot Email Address is: **{creds_dict.get('client_email')}**")
-
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1ipB1DaIdX_BS_0iSWRHMwHcP-wEpfu2pZzFT3nJtlho/edit?gid=0#gid=0"
 DRIVE_FOLDER_ID = "19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
-# --- GOOGLE AUTHENTICATION HELPERS (Uses st.secrets) ---
-from google.oauth2.credentials import Credentials
-
-def get_drive_service():
-    # Uses your Human VIP pass from the vault so you don't run out of storage!
-    token_dict = json.loads(st.secrets["google_drive_human"]["token"])
-    creds = Credentials.from_authorized_user_info(token_dict, SCOPES)
-    return build('drive', 'v3', credentials=creds)
-
-def get_drive_service():
+# --- GOOGLE AUTHENTICATION HELPERS ---
+def get_gspread_client():
+    # Uses the Robot Key for spreadsheets (no storage limit)
     creds_dict = json.loads(st.secrets["google_api"]["credentials"])
-    creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    return build('drive', 'v3', credentials=creds)
+    return gspread.service_account_from_dict(creds_dict)
+
+def get_drive_service():
+    # FORCES the use of your Human Key (token.json) for 15GB of free storage
+    try:
+        token_dict = json.loads(st.secrets["google_drive"]["token"])
+        creds = Credentials.from_authorized_user_info(token_dict, SCOPES)
+        return build('drive', 'v3', credentials=creds)
+    except Exception as e:
+        st.error(f"🚨 Could not find the human 'token' in Streamlit Secrets. Error: {e}")
+        st.stop()
 
 # --- SECURITY GATEKEEPER VALIDATION ---
 if "logged_in" not in st.session_state or st.session_state["logged_in"] == False:
@@ -46,15 +45,6 @@ if "logged_in" not in st.session_state or st.session_state["logged_in"] == False
     st.stop()
 
 st.title("📦 Command Console: Master Tracker")
-
-# --- TEMPORARY EMAIL FINDER ---
-try:
-    creds_dict = json.loads(st.secrets["google_api"]["credentials"])
-    bot_email = creds_dict.get('client_email', 'Uh oh, no email found in secrets!')
-    st.info(f"🤖 **MY ROBOT EMAIL IS:** `{bot_email}`")
-except Exception as e:
-    st.error("Could not read secrets vault.")
-# ------------------------------
 
 DOC_DIR = "uploaded_docs"
 for folder in [DOC_DIR, "logos", "signatures", "watermarks", "templates"]:
@@ -115,7 +105,10 @@ def upload_file_to_drive(drive_service, file_bytes, filename, folder_id):
     query = f"name='{safe_file}' and '{folder_id}' in parents and trashed=false"
     response = drive_service.files().list(q=query, fields='files(id)').execute()
     for f in response.get('files', []): 
-        drive_service.files().delete(fileId=f.get('id')).execute()
+        try:
+            drive_service.files().delete(fileId=f.get('id')).execute()
+        except:
+            pass 
     media = MediaIoBaseUpload(io.BytesIO(bytes(file_bytes)), mimetype='application/pdf', resumable=True)
     return drive_service.files().create(body={'name': filename, 'parents': [folder_id]}, media_body=media, fields='webViewLink').execute().get('webViewLink', '')
 
@@ -207,7 +200,6 @@ def generate_html_pdf(title, inv_no, date, client, c_addr, supplier, s_profile, 
         rendered_html = template.render({"title": title, "inv_no": inv_no, "date": date, "client_name": client, "client_address": c_addr, "supplier_name": supplier, "supplier_address": s_profile.get("Address", "Main Office Hub"), "bl": bl, "total_ctns": total_ctns, "payment_terms": payment_terms, "additional_notes": additional_notes, "is_caricom": is_caricom, "primary_hex": s_profile.get("PrimaryHex", "#0A2240"), "logo_path": logo_path, "sig_path": sig_path, "signatory_position": signatory_position, "subtotal": f"{total_val:,.2f}", "freight": (f"{freight:,.2f}" if freight else None), "grand_total": f"{(total_val + (freight or 0)):,.2f}", "items": items})
         rendered_html = re.sub(r'>\$\s*<', '><', rendered_html)
 
-    # Convert HTML to PDF using fpdf2
     try:
         pdf = FPDF()
         pdf.add_page()
@@ -381,30 +373,35 @@ with col2:
         if st.button("💾 Commit Ingestion & Sync Cloud Vault Bundle", type="primary", use_container_width=True):
             if client_name != "Select a Client..." and supplier_name != "Select a Supplier...":
                 with st.spinner("Executing synchronization across cloud vaults and local log files..."):
+                    
+                    df_caricom = pd.DataFrame([{
+                        "Description": f"{additional_notes} as per invoice # {invoice_num}, dated: {invoice_date}",
+                        "Qty": "", "UnitPrice": "", "Total Foreign (USD)": ""
+                    }])
+                    
+                    p_i, _ = generate_html_pdf("COMMERCIAL INVOICE", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_clean, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position)
+                    p_c, _ = generate_html_pdf("CARICOM INVOICE", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_caricom, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_caricom=True)
+                    p_p, _ = generate_html_pdf("PACKING LIST MANIFEST", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, st.session_state.get("df_p_compiled", df_clean), subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_packing=True)
+                    p_d, _ = generate_html_pdf("OFFICIAL DUTIES ASSESSMENT", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, st.session_state.get("df_p_compiled", df_clean), subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_duties=True, duty_data=duty_dict)
+                    
+                    with open(f"uploaded_docs/[{invoice_num}] - Commercial_Invoice.pdf", "wb") as f: f.write(p_i)
+                    with open(f"uploaded_docs/[{invoice_num}] - CARICOM_Invoice.pdf", "wb") as f: f.write(p_c)
+                    with open(f"uploaded_docs/[{invoice_num}] - Packing_List.pdf", "wb") as f: f.write(p_p)
+                    with open(f"uploaded_docs/[{invoice_num}] - Duties_Assessment.pdf", "wb") as f: f.write(p_d)
+                    
+                    # PROPER DRIVE UPLOAD (NO BYPASS)
                     try:
                         drive_service = get_drive_service()
                         f_id = get_or_create_client_folder(drive_service, client_name, DRIVE_FOLDER_ID)
-                        
-                        df_caricom = pd.DataFrame([{
-                            "Description": f"{additional_notes} as per invoice # {invoice_num}, dated: {invoice_date}",
-                            "Qty": "", "UnitPrice": "", "Total Foreign (USD)": ""
-                        }])
-                        
-                        p_i, _ = generate_html_pdf("COMMERCIAL INVOICE", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_clean, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position)
-                        p_c, _ = generate_html_pdf("CARICOM INVOICE", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_caricom, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_caricom=True)
-                        p_p, _ = generate_html_pdf("PACKING LIST MANIFEST", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, st.session_state.get("df_p_compiled", df_clean), subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_packing=True)
-                        p_d, _ = generate_html_pdf("OFFICIAL DUTIES ASSESSMENT", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, st.session_state.get("df_p_compiled", df_clean), subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_duties=True, duty_data=duty_dict)
-                        
-                        with open(f"uploaded_docs/[{invoice_num}] - Commercial_Invoice.pdf", "wb") as f: f.write(p_i)
-                        with open(f"uploaded_docs/[{invoice_num}] - CARICOM_Invoice.pdf", "wb") as f: f.write(p_c)
-                        with open(f"uploaded_docs/[{invoice_num}] - Packing_List.pdf", "wb") as f: f.write(p_p)
-                        with open(f"uploaded_docs/[{invoice_num}] - Duties_Assessment.pdf", "wb") as f: f.write(p_d)
-                        
                         u_i = upload_file_to_drive(drive_service, p_i, f"[{invoice_num}] - Commercial_Invoice.pdf", f_id)
                         u_c = upload_file_to_drive(drive_service, p_c, f"[{invoice_num}] - CARICOM_Invoice.pdf", f_id)
                         u_p = upload_file_to_drive(drive_service, p_p, f"[{invoice_num}] - Packing_List.pdf", f_id)
                         u_d = upload_file_to_drive(drive_service, p_d, f"[{invoice_num}] - Duties_Assessment.pdf", f_id)
-                        
+                    except Exception as drive_err:
+                        st.error(f"🚨 Google Drive Upload Failed: {drive_err}")
+                        st.stop()
+
+                    try:
                         df_all = load_log_data()
                         new_row = {
                             "Invoice No": str(invoice_num), "Invoice Date": str(invoice_date), "BL#": str(bl_number), 
@@ -419,7 +416,7 @@ with col2:
                         save_log_data(df_all)
                         st.success("🎉 Enterprise Cloud Sync & Local Storage Verification Complete!")
                         st.balloons()
-                    except Exception as cloud_err:
-                        st.error(f"Cloud Integration Error: {cloud_err}")
+                    except Exception as sheet_err:
+                        st.error(f"Database Integration Error: {sheet_err}")
             else:
                 st.warning("⚠️ Workspace Validation Error: Ensure client and supplier selections are active before locking data arrays.")
