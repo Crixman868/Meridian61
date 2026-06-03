@@ -33,20 +33,20 @@ st.title("🗄️ Master Log: Logistics Control Tower")
 df = load_log_data()
 
 for idx, row in df.iterrows():
-    # Parse date safely
+    # Parse data safely
     raw_eta = row.get("ETA")
     timestamp = pd.to_datetime(raw_eta, errors='coerce')
     current_date = timestamp.date() if not pd.isna(timestamp) else datetime.now().date()
     
     status_label, status_color = get_eta_status(current_date)
     
-    # 1. Dashboard Header (Visible when closed)
+    # 1. Dashboard Header
     header_text = (f"📦 CTN: {row.get('CTN Number', 'N/A')} | {status_label} | ETA: {current_date} | "
                    f"Cont: {row.get('Container #', 'N/A')} | Org: {row.get('Origin', 'N/A')} | "
                    f"Lgd: {row.get('Lodged', 'N/A')} | NALDO: {row.get('NALDO', 'N/A')}")
     
     with st.expander(header_text):
-        # 2. Admin Editor (Hidden when closed)
+        # 2. Admin Editor
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1: st.text_input("Container #", value=str(row.get("Container #", "")), key=f"cont_{idx}")
         with c2: st.selectbox("Origin", ["USA", "China", "Brazil", "UK", "Canada"], key=f"orig_{idx}")
@@ -63,13 +63,12 @@ for idx, row in df.iterrows():
         for i, col_name in enumerate(vault_cols):
             with grid[i]:
                 st.markdown(f"**{col_name}**")
-                # Functional link button
                 file_url = row.get(col_name)
+                # If file exists, show View button; otherwise, show Upload
                 if file_url and str(file_url).startswith("http"):
                     st.link_button(f"👁️ View/Print", url=file_url, key=f"view_{idx}_{i}")
                 else:
-                    st.warning("No file found.")
-                st.file_uploader(f"Upload", key=f"up_{idx}_{i}", label_visibility="collapsed")
+                    st.file_uploader(f"Upload {col_name}", key=f"up_{idx}_{i}", label_visibility="collapsed")
         
         if st.button("Save Shipment Updates", key=f"save_{idx}"):
             st.success("Changes captured!")
