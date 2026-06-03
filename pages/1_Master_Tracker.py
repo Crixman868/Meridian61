@@ -205,9 +205,13 @@ def generate_html_pdf(title, inv_no, date, client, c_addr, supplier, s_profile, 
         cleaned_html = re.sub(r'<style\b[^>]*>[\s\S]*?</style>', '', rendered_html, flags=re.IGNORECASE)
         cleaned_html = cleaned_html.replace('src=""', '')
         
-        # Replace heading tags with simple bold tags so the engine doesn't crash inside tables
+        # Replace heading tags with simple bold tags
         cleaned_html = re.sub(r'<h[1-6][^>]*>', '<b>', cleaned_html, flags=re.IGNORECASE)
         cleaned_html = re.sub(r'</h[1-6]>', '</b>', cleaned_html, flags=re.IGNORECASE)
+        
+        # --- NEW: Strip out span tags completely (they crash fpdf2 inside tables) ---
+        cleaned_html = re.sub(r'<span[^>]*>', '', cleaned_html, flags=re.IGNORECASE)
+        cleaned_html = re.sub(r'</span>', '', cleaned_html, flags=re.IGNORECASE)
         
         pdf.write_html(cleaned_html)
         pdf_bytes = bytes(pdf.output())
