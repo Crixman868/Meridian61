@@ -20,9 +20,9 @@ def load_log_data():
 # --- HELPER: ETA LOGIC ---
 def get_eta_status(eta_str):
     try:
-        eta_date = datetime.strptime(str(eta_str), "%Y-%m-%d").date()
+        eta_date = pd.to_datetime(eta_str).date()
         days_diff = (eta_date - datetime.now().date()).days
-        if days_diff < 0: return "⚠️ Overdue", "#FF4500" # Caution/Red
+        if days_diff < 0: return "⚠️ Overdue", "#FF4500"
         if 0 <= days_diff <= 5: return "🔴 Urgent", "#FF0000"
         if 6 <= days_diff <= 14: return "🟡 Upcoming", "#FFD700"
         return "🟢 On Track", "#008000"
@@ -39,9 +39,16 @@ DOC_SLOTS = [
 ]
 
 for idx, row in df.iterrows():
-    status_label, status_color = get_eta_status(row.get('ETA'))
+    # Handle ETA date safely
+    raw_eta = row.get("ETA")
+    try:
+        default_date = pd.to_datetime(raw_eta).date()
+    except:
+        default_date = datetime.now().date()
+        
+    status_label, status_color = get_eta_status(raw_eta)
     
-    with st.expander(f"📦 CTN: {row.get('CTN Number', 'N/A')} | ETA: {row.get('ETA', 'N/A')} : {status_label}"):
+    with st.expander(f"📦 CTN: {row.get('CTN Number', 'N/A')} | ETA: {row.get('ETA', 'N/A')} | {status_label}"):
         
         # Admin Fields
         col1, col2, col3, col4 = st.columns(4)
@@ -50,7 +57,7 @@ for idx, row in df.iterrows():
         with col2: 
             st.selectbox("Country of Origin", ["USA", "China", "Brazil", "UK", "Canada"], key=f"orig_{idx}")
         with col3: 
-            st.date_input("ETA", value=pd.to_datetime(row.get("ETA", datetime.now())).date(), key=f"eta_{idx}")
+            st.date_input("ETA", value=default_date, key=f"eta_{idx}")
         with col4: 
             st.radio("Lodged Status", ["Yes", "No"], horizontal=True, key=f"lodged_{idx}")
 
@@ -61,4 +68,7 @@ for idx, row in df.iterrows():
         for i, doc in enumerate(DOC_SLOTS):
             with grid[i % 5]:
                 st.markdown(f"**{doc}**")
-                st.file_uploader(f"Upload", key=f"up_{idx}_{i}")
+                st.file_uploader(f"Upload {doc}", key=f"up_{idx}_{i}")
+        
+        if st.button("Save Shipment Updates", key=f"save_{idx}"):
+            st.success("Changes captured.")
