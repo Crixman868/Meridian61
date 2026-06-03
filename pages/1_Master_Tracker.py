@@ -8,7 +8,7 @@ import json
 import io
 import jinja2
 import re
-from fpdf import FPDF
+from xhtml2pdf import pisa
 from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -151,7 +151,7 @@ def save_supplier_mapping(supplier, desc, qty, price):
     df = pd.concat([df, pd.DataFrame([{"Supplier": supplier, "DescCol": desc, "QtyCol": qty, "PriceCol": price}])], ignore_index=True)
     df.to_csv("supplier_mappings.csv", index=False)
 
-# --- DOCUMENT FACTORY ENGINE (Powered by fpdf2) ---
+# --- DOCUMENT FACTORY ENGINE (Powered by Original xhtml2pdf) ---
 def generate_html_pdf(title, inv_no, date, client, c_addr, supplier, s_profile, bl, total_ctns, df, total_val, freight=None, additional_notes="", payment_terms="", signatory_position="", is_packing=False, is_caricom=False, is_duties=False, duty_data=None):
     logo_path = get_img_b64(f"logos/{s_profile.get('Name', '')}_logo.png")
     sig_path = get_img_b64(f"signatures/{s_profile.get('Name', '')}_sig.png")
@@ -198,29 +198,13 @@ def generate_html_pdf(title, inv_no, date, client, c_addr, supplier, s_profile, 
         rendered_html = template.render({"title": title, "inv_no": inv_no, "date": date, "client_name": client, "client_address": c_addr, "supplier_name": supplier, "supplier_address": s_profile.get("Address", "Main Office Hub"), "bl": bl, "total_ctns": total_ctns, "payment_terms": payment_terms, "additional_notes": additional_notes, "is_caricom": is_caricom, "primary_hex": s_profile.get("PrimaryHex", "#0A2240"), "logo_path": logo_path, "sig_path": sig_path, "signatory_position": signatory_position, "subtotal": f"{total_val:,.2f}", "freight": (f"{freight:,.2f}" if freight else None), "grand_total": f"{(total_val + (freight or 0)):,.2f}", "items": items})
         rendered_html = re.sub(r'>\$\s*<', '><', rendered_html)
 
-    # 🛠️ THE HTML GRAMMAR FIX FOR FPDF2 🛠️
+    # 🚀 ORIGINAL ENGINE RESTORED (xhtml2pdf) 🚀
     try:
-        pdf = FPDF()
-        pdf.add_page()
-        cleaned_html = re.sub(r'<style\b[^>]*>[\s\S]*?</style>', '', rendered_html, flags=re.IGNORECASE)
-        cleaned_html = cleaned_html.replace('src=""', '')
-        
-        # Replace heading tags with simple bold tags
-        cleaned_html = re.sub(r'<h[1-6][^>]*>', '<b>', cleaned_html, flags=re.IGNORECASE)
-        cleaned_html = re.sub(r'</h[1-6]>', '</b>', cleaned_html, flags=re.IGNORECASE)
-        
-        # --- NEW: Strip out span tags completely (they crash fpdf2 inside tables) ---
-        cleaned_html = re.sub(r'<span[^>]*>', '', cleaned_html, flags=re.IGNORECASE)
-        cleaned_html = re.sub(r'</span>', '', cleaned_html, flags=re.IGNORECASE)
-        
-        pdf.write_html(cleaned_html)
-        pdf_bytes = bytes(pdf.output())
+        result = io.BytesIO()
+        pisa.CreatePDF(rendered_html, dest=result)
+        pdf_bytes = result.getvalue()
     except Exception as e:
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("helvetica", size=12)
-        pdf.multi_cell(0, 10, f"DOCUMENT: {title}\nINVOICE: {inv_no}\n\nNotice: Detailed HTML rendering failed. Please use the 'Export / Print Wizard' button in the app for the fully formatted document.\n\nSystem Error: {e}")
-        pdf_bytes = bytes(pdf.output())
+        pdf_bytes = f"CRITICAL PDF ERROR: {e}".encode('utf-8')
 
     return pdf_bytes, rendered_html
 
