@@ -23,7 +23,6 @@ def load_log_data():
 # --- HELPER: ETA LOGIC ---
 def get_eta_status(eta_str):
     try:
-        # Ensure we have a valid date
         eta_date = pd.to_datetime(eta_str).date()
         days_diff = (eta_date - datetime.now().date()).days
         if days_diff < 0: return "⚠️ Overdue", "#FF4500"
@@ -48,12 +47,15 @@ DOC_SLOTS = [
 ]
 
 for idx, row in df.iterrows():
-    # Pre-parse date safely
+    # Robust date parsing
     raw_eta = row.get("ETA")
-    try:
-        parsed_date = pd.to_datetime(raw_eta).date()
-    except:
+    timestamp = pd.to_datetime(raw_eta, errors='coerce')
+    
+    # Ensure parsed_date is a valid date object for Streamlit
+    if pd.isna(timestamp):
         parsed_date = datetime.now().date()
+    else:
+        parsed_date = timestamp.date()
         
     status_label, status_color = get_eta_status(raw_eta)
     
