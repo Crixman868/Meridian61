@@ -25,18 +25,16 @@ SCOPES = ['https://www.googleapis.com/auth/drive']
 
 # --- GOOGLE AUTHENTICATION HELPERS ---
 def get_gspread_client():
-    # Uses the Robot Key for spreadsheets (no storage limit)
     creds_dict = json.loads(st.secrets["google_api"]["credentials"])
     return gspread.service_account_from_dict(creds_dict)
 
 def get_drive_service():
-    # FORCES the use of your Human Key (token.json) for 15GB of free storage
     try:
         token_dict = json.loads(st.secrets["google_drive"]["token"])
         creds = Credentials.from_authorized_user_info(token_dict, SCOPES)
         return build('drive', 'v3', credentials=creds)
     except Exception as e:
-        st.error(f"🚨 Could not find the human 'token' in Streamlit Secrets. Error: {e}")
+        st.error(f"🚨 Missing Human VIP Pass in Secrets: {e}")
         st.stop()
 
 # --- SECURITY GATEKEEPER VALIDATION ---
@@ -200,11 +198,17 @@ def generate_html_pdf(title, inv_no, date, client, c_addr, supplier, s_profile, 
         rendered_html = template.render({"title": title, "inv_no": inv_no, "date": date, "client_name": client, "client_address": c_addr, "supplier_name": supplier, "supplier_address": s_profile.get("Address", "Main Office Hub"), "bl": bl, "total_ctns": total_ctns, "payment_terms": payment_terms, "additional_notes": additional_notes, "is_caricom": is_caricom, "primary_hex": s_profile.get("PrimaryHex", "#0A2240"), "logo_path": logo_path, "sig_path": sig_path, "signatory_position": signatory_position, "subtotal": f"{total_val:,.2f}", "freight": (f"{freight:,.2f}" if freight else None), "grand_total": f"{(total_val + (freight or 0)):,.2f}", "items": items})
         rendered_html = re.sub(r'>\$\s*<', '><', rendered_html)
 
+    # 🛠️ THE HTML GRAMMAR FIX FOR FPDF2 🛠️
     try:
         pdf = FPDF()
         pdf.add_page()
         cleaned_html = re.sub(r'<style\b[^>]*>[\s\S]*?</style>', '', rendered_html, flags=re.IGNORECASE)
         cleaned_html = cleaned_html.replace('src=""', '')
+        
+        # Replace heading tags with simple bold tags so the engine doesn't crash inside tables
+        cleaned_html = re.sub(r'<h[1-6][^>]*>', '<b>', cleaned_html, flags=re.IGNORECASE)
+        cleaned_html = re.sub(r'</h[1-6]>', '</b>', cleaned_html, flags=re.IGNORECASE)
+        
         pdf.write_html(cleaned_html)
         pdf_bytes = bytes(pdf.output())
     except Exception as e:
@@ -389,7 +393,6 @@ with col2:
                     with open(f"uploaded_docs/[{invoice_num}] - Packing_List.pdf", "wb") as f: f.write(p_p)
                     with open(f"uploaded_docs/[{invoice_num}] - Duties_Assessment.pdf", "wb") as f: f.write(p_d)
                     
-                    # PROPER DRIVE UPLOAD (NO BYPASS)
                     try:
                         drive_service = get_drive_service()
                         f_id = get_or_create_client_folder(drive_service, client_name, DRIVE_FOLDER_ID)
