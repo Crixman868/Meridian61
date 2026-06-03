@@ -18,7 +18,7 @@ def load_log_data():
         return pd.DataFrame(gc.open_by_url(SHEET_URL).sheet1.get_all_records())
     except: return pd.DataFrame()
 
-# --- HELPER: ETA LOGIC (Now accepts a dynamic date) ---
+# --- ETA LOGIC ---
 def get_eta_status(eta_date):
     try:
         days_diff = (eta_date - datetime.now().date()).days
@@ -32,41 +32,42 @@ def get_eta_status(eta_date):
 st.title("🗄️ Master Log: Logistics Control Tower")
 df = load_log_data()
 
-DOC_SLOTS = [
-    "Commercial Invoice", "CARICOM Invoice", "Sequential Packing List", "Official Duties Assessment",
-    "Bill of Lading Scan", "Upload Original Invoice", "Upload Orig. Packing List", "Upload Tracker Document",
-    "Other Documents", "Miscellaneous Supporting Doc"
-]
-
 for idx, row in df.iterrows():
-    # Parse date or default to today
+    # Parse data safely
     raw_eta = row.get("ETA")
     timestamp = pd.to_datetime(raw_eta, errors='coerce')
     current_date = timestamp.date() if not pd.isna(timestamp) else datetime.now().date()
     
-    # Shipment Expander
-    with st.expander(f"📦 CTN: {row.get('CTN Number', 'N/A')} | ETA: {row.get('ETA', 'N/A')}"):
-        
-        # 1. Admin Fields
+    status_label, status_color = get_eta_status(current_date)
+    
+    # 1. Dashboard View (The Header)
+    header_text = (f"📦 CTN: {row.get('CTN Number', 'N/A')} | {status_label} | ETA: {current_date} | "
+                   f"Cont: {row.get('Container #', 'N/A')} | Org: {row.get('Origin', 'N/A')} | "
+                   f"Lgd: {row.get('Lodged', 'N/A')} | NALDO: {row.get('NALDO', 'N/A')}")
+    
+    with st.expander(header_text):
+        # 2. Admin Editor
         c1, c2, c3, c4, c5 = st.columns(5)
-        with c1: cont = st.text_input("Container #", value=str(row.get("Container #", "")), key=f"cont_{idx}")
-        with c2: orig = st.selectbox("Origin", ["USA", "China", "Brazil", "UK", "Canada"], key=f"orig_{idx}")
-        with c3: new_eta = st.date_input("ETA", value=current_date, key=f"eta_{idx}")
-        with c4: lodged = st.radio("Lodged", ["Yes", "No"], horizontal=True, key=f"lodged_{idx}")
-        with c5: naldo = st.radio("NALDO Goods", ["Yes", "No"], horizontal=True, key=f"naldo_{idx}")
+        with c1: st.text_input("Container #", value=str(row.get("Container #", "")), key=f"cont_{idx}")
+        with c2: st.selectbox("Origin", ["USA", "China", "Brazil", "UK", "Canada"], key=f"orig_{idx}")
+        with c3: st.date_input("ETA", value=current_date, key=f"eta_{idx}")
+        with c4: st.radio("Lodged", ["Yes", "No"], horizontal=True, key=f"lodged_{idx}")
+        with c5: st.radio("NALDO", ["Yes", "No"], horizontal=True, key=f"naldo_{idx}")
         
-        # 2. Dynamic Status (Calculated instantly based on date_input)
-        status_label, status_color = get_eta_status(new_eta)
-        st.markdown(f"**Status:** :{status_color}[{status_label}]")
-
-        # 3. Document Vault
+        # 3. Document Vault & Viewer
         st.write("---")
-        st.subheader("Document Vault")
+        st.subheader("Document Vault (View & Print)")
         grid = st.columns(5)
-        for i, doc in enumerate(DOC_SLOTS):
-            with grid[i % 5]:
-                st.markdown(f"**{doc}**")
-                st.file_uploader(f"Upload", key=f"up_{idx}_{i}")
+        
+        # This loop assumes you have file URLs in your spreadsheet or object store
+        # For now, I've added a placeholder viewer trigger
+        for i, doc_name in enumerate(["Comm. Invoice", "CARICOM", "Packing List", "Duties", "BOL"]):
+            with grid[i]:
+                st.markdown(f"**{doc_name}**")
+                # This button mimics the "View" functionality
+                if st.button(f"👁️ View/Print {doc_name}", key=f"view_{idx}_{i}"):
+                    st.info(f"Opening {doc_name}...")
+                st.file_uploader(f"Upload", key=f"up_{idx}_{i}", label_visibility="collapsed")
         
         if st.button("Save Shipment Updates", key=f"save_{idx}"):
             st.success("Changes captured!")
