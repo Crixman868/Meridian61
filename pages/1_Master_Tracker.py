@@ -43,6 +43,15 @@ if "logged_in" not in st.session_state or st.session_state["logged_in"] == False
 
 st.title("📦 Command Console: Master Tracker")
 
+# --- TEMPORARY EMAIL FINDER ---
+try:
+    creds_dict = json.loads(st.secrets["google_api"]["credentials"])
+    bot_email = creds_dict.get('client_email', 'Uh oh, no email found in secrets!')
+    st.info(f"🤖 **MY ROBOT EMAIL IS:** `{bot_email}`")
+except Exception as e:
+    st.error("Could not read secrets vault.")
+# ------------------------------
+
 DOC_DIR = "uploaded_docs"
 for folder in [DOC_DIR, "logos", "signatures", "watermarks", "templates"]:
     if not os.path.exists(folder): 
