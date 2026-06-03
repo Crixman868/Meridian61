@@ -4,4 +4,3 @@ google-api-python-client
 gspread
 pandas
 openpyxl
-pdfkit
