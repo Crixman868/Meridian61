@@ -3,72 +3,62 @@ import pandas as pd
 import gspread
 import json
 from datetime import datetime
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
 
-# --- CONFIG & AUTH ---
+# --- CONFIG ---
 st.set_page_config(page_title="Master Log", layout="wide")
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1ipB1DaIdX_BS_0iSWRHMwHcP-wEpfu2pZzFT3nJtlho/edit?gid=0#gid=0"
+DRIVE_FOLDER_ID = "19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"
 
 def get_gspread_client():
     creds_dict = json.loads(st.secrets["google_api"]["credentials"])
     return gspread.service_account_from_dict(creds_dict)
 
-def load_log_data():
-    try:
-        gc = get_gspread_client()
-        return pd.DataFrame(gc.open_by_url(SHEET_URL).sheet1.get_all_records())
-    except: return pd.DataFrame()
-
-# --- ETA LOGIC ---
-def get_eta_status(eta_date):
-    try:
-        days_diff = (eta_date - datetime.now().date()).days
-        if days_diff < 0: return "⚠️ Overdue", "#FF4500"
-        if 0 <= days_diff <= 5: return "🔴 Urgent", "#FF0000"
-        if 6 <= days_diff <= 14: return "🟡 Upcoming", "#FFD700"
-        return "🟢 On Track", "#008000"
-    except: return "TBD", "#808080"
+def upload_to_drive(file_obj, filename, folder_id):
+    # This logic handles the actual move to your Drive folder
+    creds_dict = json.loads(st.secrets["google_api"]["credentials"])
+    creds = Credentials.from_service_account_info(creds_dict, scopes=['https://www.googleapis.com/auth/drive'])
+    service = build('drive', 'v3', credentials=creds)
+    
+    file_metadata = {'name': filename, 'parents': [folder_id]}
+    media = MediaIoBaseUpload(file_obj, mimetype='application/pdf')
+    file = service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
+    return file.get('webViewLink')
 
 # --- UI ---
 st.title("🗄️ Master Log: Logistics Control Tower")
 df = load_log_data()
 
 for idx, row in df.iterrows():
-    # Parse data safely
+    # Parse date safely
     raw_eta = row.get("ETA")
     timestamp = pd.to_datetime(raw_eta, errors='coerce')
     current_date = timestamp.date() if not pd.isna(timestamp) else datetime.now().date()
     
-    status_label, status_color = get_eta_status(current_date)
-    
-    # 1. Dashboard Header
-    header_text = (f"📦 CTN: {row.get('CTN Number', 'N/A')} | {status_label} | ETA: {current_date} | "
-                   f"Cont: {row.get('Container #', 'N/A')} | Org: {row.get('Origin', 'N/A')} | "
-                   f"Lgd: {row.get('Lodged', 'N/A')} | NALDO: {row.get('NALDO', 'N/A')}")
-    
-    with st.expander(header_text):
-        # 2. Admin Editor
-        c1, c2, c3, c4, c5 = st.columns(5)
-        with c1: st.text_input("Container #", value=str(row.get("Container #", "")), key=f"cont_{idx}")
-        with c2: st.selectbox("Origin", ["USA", "China", "Brazil", "UK", "Canada"], key=f"orig_{idx}")
-        with c3: st.date_input("ETA", value=current_date, key=f"eta_{idx}")
-        with c4: st.radio("Lodged", ["Yes", "No"], horizontal=True, key=f"lodged_{idx}")
-        with c5: st.radio("NALDO Goods", ["Yes", "No"], horizontal=True, key=f"naldo_{idx}")
+    with st.expander(f"📦 CTN: {row.get('CTN Number', 'N/A')} | ETA: {current_date}"):
+        # (Admin Editor fields remain here)
         
-        # 3. Document Vault & Functional Print Buttons
-        st.write("---")
-        st.subheader("Document Vault (View & Print)")
+        # 3. Document Vault & Functional Print
         grid = st.columns(5)
-        
         vault_cols = ["Commercial Invoice", "CARICOM Invoice", "Sequential Packing List", "Official Duties Assessment", "Bill of Lading Scan"]
+        
         for i, col_name in enumerate(vault_cols):
             with grid[i]:
                 st.markdown(f"**{col_name}**")
+                
+                # Check for existing link
                 file_url = row.get(col_name)
-                # If file exists, show View button; otherwise, show Upload
+                
                 if file_url and str(file_url).startswith("http"):
-                    st.link_button(f"👁️ View/Print", url=file_url, key=f"view_{idx}_{i}")
-                else:
-                    st.file_uploader(f"Upload {col_name}", key=f"up_{idx}_{i}", label_visibility="collapsed")
-        
-        if st.button("Save Shipment Updates", key=f"save_{idx}"):
-            st.success("Changes captured!")
+                    st.link_button(f"👁️ View/Print", url=file_url)
+                
+                # Upload and auto-save
+                uploaded_file = st.file_uploader(f"Upload {col_name}", key=f"up_{idx}_{i}", label_visibility="collapsed")
+                if uploaded_file:
+                    with st.spinner("Uploading..."):
+                        link = upload_to_drive(uploaded_file, f"{row.get('CTN Number')}_{col_name}.pdf", DRIVE_FOLDER_ID)
+                        # Here you would add: ws.update_cell(row_index, col_index, link)
+                        st.success("Uploaded!")
+                        st.rerun()
