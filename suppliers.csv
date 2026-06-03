@@ -1,0 +1,6 @@
+Name,Address,Palette,Typography,HeaderGeo,InvOrient,PackOrient,WMToggle,WMOpacity,PrimaryHex,SecondaryHex,FontSize,LogoAlign,TableStyle,Template
+Celebrity Pink,"1708 GAGE RD. MONTEBELLO, CA 90640, Phone: 323 837 9800",Grayscale Play,Helvetica,Minimalis,P,P,1,20,#333333,#666666,10,Center,Boutique,celebrity_pink_invoice.html
+DC GARMENTS,"DILKAP CHAMBERS UNIT NO.212B, VEERA DESAI ROAD, ANDHERI-W, MUMBAI 400053",Minimalist Stark,Helvetica Neue,Asymmetric Editorial Split,P,L,1,12,#000000,#111111,9,Left,Open-Frame Borderless,dc_garments_invoice.html
+K3 Worldwide,"""AVE DOMINADOR BAZAN, COFRISA 9, LOCAL 6 Y 6A, ZONA LIBRE DE COLON, PANAMA""",EnterpriseNavy,OpenSans,SplitLinear,P,P,1,12,#0A2540,#111111,10,Left,InstitutionalGrid,k3worldwide_sa_invoice.html
+Kaso Worldwide,"Room 1405-06, 14/F Beverley Commercial Centre, 87-105 Chatham Road South, Kowloon, Hong Kong",SlateCharcoal,OpenSans,LandscapePanels,L,L,1,12,#495057,#f8f9fa,11,Right,ModernShaded,kaso_worldwide_invoice.html
+Majestic Freight Forwarders Service,"2440 Artesia Ave, Fullerton CA 92833, USA",InstitutionalGrayscale,OpenSans,SplitBanner,L,L,1,10,#111111,#333333,11,Left,HeavyBorderGrid,maritime_ledger_landscape.html
