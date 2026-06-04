@@ -11,6 +11,7 @@ import tempfile
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from googleapiclient.http import MediaFileUpload
+from xhtml2pdf import pisa
 
 # ==========================================
 # ☁️ CONFIGURATION & SECURITY
@@ -20,23 +21,29 @@ st.set_page_config(page_title="Master Tracker", page_icon="📦", layout="wide")
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1ipB1DaIdX_BS_0iSWRHMwHcP-wEpfu2pZzFT3nJtlho/edit?gid=0#gid=0"
 ROOT_FOLDER_ID = "19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"
 
+# --- SECURITY GATEKEEPER VALIDATION ---
+if "logged_in" not in st.session_state or st.session_state["logged_in"] == False:
+    st.error("🚨 Access Denied. Please log in through the Secure Gatekeeper.")
+    st.stop()
+
 # --- GOOGLE AUTHENTICATION & DRIVE ENGINE ---
 def get_creds():
-    # Using Human Token to bypass 0-byte Service Account quota limits
     token_dict = json.loads(st.secrets["google_drive_human"]["token"])
     return Credentials.from_authorized_user_info(token_dict)
 
 def get_gspread_client():
-    creds = get_creds()
-    return gspread.authorize(creds)
+    return gspread.authorize(get_creds())
 
 def get_drive_service():
     return build('drive', 'v3', credentials=get_creds())
 
-def upload_html_to_drive(html_content, file_name, client_name, invoice_no):
-    if not html_content:
-        return "Pending Upload"
-        
+def convert_html_to_pdf(source_html, output_filename):
+    with open(output_filename, "w+b") as result_file:
+        pisa_status = pisa.CreatePDF(source_html, dest=result_file)
+    return pisa_status.err
+
+def upload_system_pdf_to_drive(html_content, file_name, client_name, invoice_no):
+    if not html_content: return "Pending Upload"
     try:
         drive = get_drive_service()
         
@@ -48,72 +55,34 @@ def upload_html_to_drive(html_content, file_name, client_name, invoice_no):
         inv_folders = drive.files().list(q=f"name='{invoice_no}' and '{client_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
         inv_folder_id = inv_folders[0]['id'] if inv_folders else drive.files().create(body={"name": invoice_no, "parents": [client_folder_id], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
         
-        # 3. Create a temporary HTML file to upload
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".html", mode='w', encoding='utf-8') as temp_file:
-            temp_file.write(html_content)
-            temp_path = temp_file.name
+        # 3. Convert HTML to PDF locally
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_pdf:
+            temp_pdf_path = temp_pdf.name
+            
+        conversion_error = convert_html_to_pdf(html_content, temp_pdf_path)
+        if conversion_error:
+            st.error(f"PDF Conversion failed for {file_name}")
+            return "Upload Failed"
 
-        # 4. Upload File
+        # 4. Upload PDF to Drive
         file_metadata = {'name': file_name, 'parents': [inv_folder_id]}
-        media = MediaFileUpload(temp_path, mimetype='text/html', resumable=True)
+        media = MediaFileUpload(temp_pdf_path, mimetype='application/pdf', resumable=True)
         file = drive.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
         
-        # Clean up temp file
-        os.remove(temp_path)
+        os.remove(temp_pdf_path)
         return file.get('webViewLink', 'Upload Failed')
     except Exception as e:
         st.error(f"Drive Upload Error for {file_name}: {e}")
         return "Upload Failed"
 
-# --- SECURITY GATEKEEPER VALIDATION ---
-if "logged_in" not in st.session_state or st.session_state["logged_in"] == False:
-    st.error("🚨 Access Denied. Please log in through the Secure Gatekeeper.")
-    st.stop()
-
-st.title("📦 Command Console: Master Tracker")
-
-DOC_DIR = "uploaded_docs"
-for folder in [DOC_DIR, "logos", "signatures", "watermarks", "templates"]:
-    if not os.path.exists(folder): 
-        os.makedirs(folder)
-
-# --- MODERN BROWSER PRINT UTILITY ENGINE ---
-def create_print_button(html_content, button_label):
-    escaped_html = html_content.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "")
-    components_code = f"""
-    <div style="display: flex; justify-content: center; margin-bottom: 8px;">
-        <button onclick="triggerSystemPrint()" style="
-            width: 100%; background-color: #2b2b2b; color: white; border: 1px solid #4a4a4a;
-            padding: 10px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px;
-        ">🖨️ {button_label}</button>
-    </div>
-    <script>
-        function triggerSystemPrint() {{
-            var printWindow = window.open('', '_blank', 'height=700,width=900');
-            printWindow.document.write('{escaped_html}');
-            printWindow.document.close();
-            printWindow.focus();
-            setTimeout(function() {{ printWindow.print(); printWindow.close(); }}, 400);
-        }}
-    </script>
-    """
-    components.html(components_code, height=55)
-
-def display_html_preview(raw_html):
-    preview_html = f'<div style="background-color: white; padding: 40px; margin: 10px auto; border-radius: 5px; box-shadow: 0px 4px 10px rgba(0,0,0,0.1); max-width: 900px; color: #333333;">{raw_html}</div>'
-    components.html(preview_html, height=750, scrolling=True)
-
-# --- DATABASE RUNTIME ENGINES ---
+# --- DATABASE ENGINES ---
 def load_log_data():
     try:
-        gc = get_gspread_client()
-        df = pd.DataFrame(gc.open_by_url(SHEET_URL).sheet1.get_all_records())
-        return df if not df.empty else pd.DataFrame()
+        return pd.DataFrame(get_gspread_client().open_by_url(SHEET_URL).sheet1.get_all_records())
     except: return pd.DataFrame()
 
 def save_log_data(df):
-    gc = get_gspread_client()
-    ws = gc.open_by_url(SHEET_URL).sheet1
+    ws = get_gspread_client().open_by_url(SHEET_URL).sheet1
     ws.clear()
     ws.update([df.fillna("").columns.values.tolist()] + df.fillna("").values.tolist())
 
@@ -182,7 +151,28 @@ def generate_html_document(title, inv_no, date, client, c_addr, supplier, s_prof
 
     return rendered_html
 
+def create_print_button(html_content, button_label):
+    escaped_html = html_content.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "")
+    components_code = f"""
+    <div style="display: flex; justify-content: center; margin-bottom: 8px;">
+        <button onclick="triggerSystemPrint()" style="width: 100%; background-color: #2b2b2b; color: white; border: 1px solid #4a4a4a; padding: 10px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px;">🖨️ {button_label}</button>
+    </div>
+    <script>
+        function triggerSystemPrint() {{ var printWindow = window.open('', '_blank', 'height=700,width=900'); printWindow.document.write('{escaped_html}'); printWindow.document.close(); printWindow.focus(); setTimeout(function() {{ printWindow.print(); printWindow.close(); }}, 400); }}
+    </script>
+    """
+    components.html(components_code, height=55)
+
+def display_html_preview(raw_html):
+    preview_html = f'<div style="background-color: white; padding: 40px; margin: 10px auto; border-radius: 5px; box-shadow: 0px 4px 10px rgba(0,0,0,0.1); max-width: 900px; color: #333333;">{raw_html}</div>'
+    components.html(preview_html, height=750, scrolling=True)
+
 # --- MAIN UI ---
+st.title("📦 Command Console: Master Tracker")
+DOC_DIR = "uploaded_docs"
+for folder in [DOC_DIR, "logos", "signatures", "watermarks", "templates"]:
+    if not os.path.exists(folder): os.makedirs(folder)
+
 client_file = "clients.csv"
 supplier_file = "suppliers.csv"
 client_options = ["Select a Client..."] + sorted(pd.read_csv(client_file)["Name"].dropna().tolist()) if os.path.exists(client_file) and os.path.getsize(client_file) > 0 else ["Select a Client..."]
@@ -234,12 +224,10 @@ with col1:
 
     st.markdown("#### Tariff Tax Parameters")
     tx1, tx2 = st.columns(2)
-    with tx1: 
-        duty_percentage = st.number_input("Duty Rate (%)", value=20.0)
-        vat_percentage = st.number_input("VAT Rate (%)", value=12.5)
-    with tx2: 
-        ces_fee = st.number_input("CES Fee (TTD)", value=1050.00)
-        uf_fee = st.number_input("UF Fee (TTD)", value=80.00)
+    with tx1: duty_percentage = st.number_input("Duty Rate (%)", value=20.0)
+    with tx1: vat_percentage = st.number_input("VAT Rate (%)", value=12.5)
+    with tx2: ces_fee = st.number_input("CES Fee (TTD)", value=1050.00)
+    with tx2: uf_fee = st.number_input("UF Fee (TTD)", value=80.00)
 
 with col2:
     st.subheader("Automated Document Delivery Streams")
@@ -265,20 +253,17 @@ with col2:
             base_pck_df["TOTAL CTNS"] = 0
             st.session_state["pck_working_df"] = base_pck_df
 
-        if "pck_working_df" in st.session_state and "TOTAL CTNS" not in st.session_state["pck_working_df"].columns:
-            st.session_state["pck_working_df"]["TOTAL CTNS"] = 0
-
         t_inv, t_car, t_pck, t_dut = st.tabs(["📄 Invoice", "🌐 CARICOM", "📋 Packing Manifest", "🇹🇹 Customs Audit"])
         
         with t_inv:
-            if st.button("⚙️ Compile Invoice"): 
+            if st.button("⚙️ Preview Invoice"): 
                 st.session_state["h_inv"] = generate_html_document("COMMERCIAL INVOICE", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_clean, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position)
             if "h_inv" in st.session_state: 
                 create_print_button(st.session_state["h_inv"], "Export / Open System Print Wizard")
                 display_html_preview(st.session_state["h_inv"])
                 
         with t_car:
-            if st.button("⚙️ Compile CARICOM"): 
+            if st.button("⚙️ Preview CARICOM"): 
                 df_caricom = pd.DataFrame([{"Description": f"{additional_notes} as per invoice # {invoice_num}, dated: {invoice_date}", "Qty": "", "UnitPrice": "", "Total Foreign (USD)": ""}])
                 st.session_state["h_car"] = generate_html_document("CARICOM INVOICE", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_caricom, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_caricom=True)
             if "h_car" in st.session_state: 
@@ -303,37 +288,44 @@ with col2:
             df_p_compiled = pd.DataFrame(calculated_rows)
             st.session_state["df_p_compiled"] = df_p_compiled
 
-            if st.button("⚙️ Compile Packing List"): 
+            if st.button("⚙️ Preview Packing List"): 
                 st.session_state["h_pck"] = generate_html_document("PACKING LIST MANIFEST", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_p_compiled, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_packing=True)
             if "h_pck" in st.session_state: 
                 create_print_button(st.session_state["h_pck"], "Export / Open System Print Wizard")
                 display_html_preview(st.session_state["h_pck"])
                 
         with t_dut:
-            if st.button("⚙️ Compile Customs Summary"): 
+            if st.button("⚙️ Preview Customs Summary"): 
                 st.session_state["h_dut"] = generate_html_document("OFFICIAL DUTIES ASSESSMENT", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, st.session_state.get("df_p_compiled", df_clean), subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_duties=True, duty_data=duty_dict)
             if "h_dut" in st.session_state: 
                 create_print_button(st.session_state["h_dut"], "Export / Open System Print Wizard")
                 display_html_preview(st.session_state["h_dut"])
 
-        # --- MASTER LOG DATABASE SYNCHRONIZATION AND DRIVE UPLOAD ---
+        # --- AUTO-COMPILE & SYNC ENGINE ---
         st.write("---")
         if st.button("💾 Commit Data & Send to Master Log", type="primary", width="stretch"):
             if client_name != "Select a Client..." and supplier_name != "Select a Supplier...":
-                with st.spinner("Uploading Documents and Syncing to Master Log..."):
+                with st.spinner("Locking PDFs and Syncing to Master Log..."):
                     try:
-                        # 1. Upload generated HTML to Google Drive
-                        inv_link = upload_html_to_drive(st.session_state.get("h_inv"), f"{invoice_num}_Commercial_Invoice.html", client_name, invoice_num)
-                        car_link = upload_html_to_drive(st.session_state.get("h_car"), f"{invoice_num}_CARICOM_Invoice.html", client_name, invoice_num)
-                        pck_link = upload_html_to_drive(st.session_state.get("h_pck"), f"{invoice_num}_Sequential_Packing_List.html", client_name, invoice_num)
-                        dut_link = upload_html_to_drive(st.session_state.get("h_dut"), f"{invoice_num}_Official_Duties.html", client_name, invoice_num)
+                        # 1. Auto-Generate HTML strings in background
+                        auto_inv_html = generate_html_document("COMMERCIAL INVOICE", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_clean, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position)
+                        df_caricom_auto = pd.DataFrame([{"Description": f"{additional_notes} as per invoice # {invoice_num}, dated: {invoice_date}", "Qty": "", "UnitPrice": "", "Total Foreign (USD)": ""}])
+                        auto_car_html = generate_html_document("CARICOM INVOICE", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_caricom_auto, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_caricom=True)
+                        auto_pck_html = generate_html_document("PACKING LIST MANIFEST", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, st.session_state.get("df_p_compiled", df_clean), subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_packing=True)
+                        auto_dut_html = generate_html_document("OFFICIAL DUTIES ASSESSMENT", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, st.session_state.get("df_p_compiled", df_clean), subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_duties=True, duty_data=duty_dict)
 
-                        # 2. Sync Metadata and Links to Sheet
+                        # 2. Convert to PDF and Upload
+                        inv_link = upload_system_pdf_to_drive(auto_inv_html, f"{invoice_num}_Commercial_Invoice.pdf", client_name, invoice_num)
+                        car_link = upload_system_pdf_to_drive(auto_car_html, f"{invoice_num}_CARICOM_Invoice.pdf", client_name, invoice_num)
+                        pck_link = upload_system_pdf_to_drive(auto_pck_html, f"{invoice_num}_Sequential_Packing_List.pdf", client_name, invoice_num)
+                        dut_link = upload_system_pdf_to_drive(auto_dut_html, f"{invoice_num}_Official_Duties.pdf", client_name, invoice_num)
+
+                        # 3. Sync to Google Sheets
                         df_all = load_log_data()
                         new_row = {
                             "Invoice No": str(invoice_num), 
                             "Client Name": str(client_name),
-                            "Container #": "", # Set blank initially, added later in Master Log
+                            "Container #": "", 
                             "Country of Origin": "", 
                             "ETA": str(invoice_date), 
                             "Lodged Status": "No",
@@ -350,16 +342,15 @@ with col2:
                             "Miscellaneous Supporting Doc": "Pending Upload"
                         }
                         
-                        # Replace old row if same invoice number exists, else append
                         if not df_all.empty and "Invoice No" in df_all.columns:
                             df_all = pd.concat([df_all[df_all["Invoice No"].astype(str) != str(invoice_num)], pd.DataFrame([new_row])], ignore_index=True)
                         else:
                             df_all = pd.DataFrame([new_row])
                             
                         save_log_data(df_all)
-                        st.success("🎉 Shipment data successfully committed! Links sent to Master Log.")
+                        st.success("🎉 Shipment data locked and synced! PDFs are now available in the Master Log.")
                         st.balloons()
                     except Exception as sheet_err:
-                        st.error(f"Database Integration Error: {sheet_err}")
+                        st.error(f"Integration Error: {sheet_err}")
             else:
-                st.warning("⚠️ Workspace Validation Error: Ensure client and supplier selections are active before locking data arrays.")
+                st.warning("⚠️ Workspace Validation Error: Ensure client and supplier selections are active.")
