@@ -2,23 +2,78 @@ import streamlit as st
 import pandas as pd
 import gspread
 import json
+import os
+import tempfile
 from datetime import datetime
+from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
+from googleapiclient.http import MediaFileUpload
 
 # --- CONFIG & AUTH ---
 st.set_page_config(page_title="Master Log", layout="wide")
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1ipB1DaIdX_BS_0iSWRHMwHcP-wEpfu2pZzFT3nJtlho/edit?gid=0#gid=0"
+ROOT_FOLDER_ID = "19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"
+
+# --- SECURITY GATEKEEPER VALIDATION ---
+if "logged_in" not in st.session_state or st.session_state["logged_in"] == False:
+    st.error("🚨 Access Denied. Please log in through the Secure Gatekeeper.")
+    st.stop()
+
+# --- GOOGLE DRIVE ENGINE (Human Token) ---
+def get_creds():
+    token_dict = json.loads(st.secrets["google_drive_human"]["token"])
+    return Credentials.from_authorized_user_info(token_dict)
 
 def get_gspread_client():
-    creds_dict = json.loads(st.secrets["google_api"]["credentials"])
-    return gspread.service_account_from_dict(creds_dict)
+    return gspread.authorize(get_creds())
 
-def load_log_data():
+def get_drive_service():
+    return build('drive', 'v3', credentials=get_creds())
+
+def upload_physical_file_to_drive(uploaded_file, file_name, client_name, invoice_no):
+    if not uploaded_file: return None
     try:
-        gc = get_gspread_client()
-        return pd.DataFrame(gc.open_by_url(SHEET_URL).sheet1.get_all_records())
+        drive = get_drive_service()
+        
+        # 1. Find/Create Client Folder in Vault
+        folders = drive.files().list(q=f"name='{client_name}' and '{ROOT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
+        client_folder_id = folders[0]['id'] if folders else drive.files().create(body={"name": client_name, "parents": [ROOT_FOLDER_ID], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
+        
+        # 2. Find/Create Invoice Folder
+        inv_folders = drive.files().list(q=f"name='{invoice_no}' and '{client_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
+        inv_folder_id = inv_folders[0]['id'] if inv_folders else drive.files().create(body={"name": invoice_no, "parents": [client_folder_id], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
+        
+        # 3. Create physical temp file from Streamlit uploader
+        file_ext = os.path.splitext(uploaded_file.name)[1]
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
+            temp_file.write(uploaded_file.getvalue())
+            temp_path = temp_file.name
+
+        # 4. Upload to Drive
+        file_metadata = {'name': file_name, 'parents': [inv_folder_id]}
+        media = MediaFileUpload(temp_path, resumable=True)
+        file = drive.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
+        
+        os.remove(temp_path)
+        return file.get('webViewLink')
     except Exception as e:
-        st.error(f"Error loading spreadsheet: {e}")
-        return pd.DataFrame()
+        st.error(f"Drive Upload Error for {file_name}: {e}")
+        return None
+
+# --- DATABASE ENGINES ---
+def load_log_data():
+    try: return pd.DataFrame(get_gspread_client().open_by_url(SHEET_URL).sheet1.get_all_records())
+    except: return pd.DataFrame()
+
+def save_log_data(df):
+    try:
+        ws = get_gspread_client().open_by_url(SHEET_URL).sheet1
+        ws.clear()
+        ws.update([df.fillna("").columns.values.tolist()] + df.fillna("").values.tolist())
+        return True
+    except Exception as e:
+        st.error(f"Failed to sync with Google Sheets: {e}")
+        return False
 
 def get_eta_status(eta_date):
     try:
@@ -29,53 +84,94 @@ def get_eta_status(eta_date):
         return "🟢 On Track", "#008000"
     except: return "TBD", "#808080"
 
-# --- UI ---
+# --- UI & LOGIC ---
 st.title("🗄️ Master Log: Logistics Control Tower")
+
+# 🔒 ROLE CHECK (Set to False to see Staff view)
+is_admin = st.session_state.get("is_admin", True) 
 
 df = load_log_data()
 
 if df.empty:
-    st.warning("No data found. Please check your sheet connection.")
+    st.warning("No data found in the Master Log.")
 else:
-    # All 10 Document Slots as defined in our matrix
-    DOC_SLOTS = [
-        "Commercial Invoice", "CARICOM Invoice", "Sequential Packing List", "Official Duties Assessment",
-        "Bill of Lading Scan", "Original Invoice", "Original Packing List", "Tracker Document",
-        "Other Documents", "Miscellaneous Supporting Doc"
-    ]
+    SYSTEM_DOCS = ["Commercial Invoice", "CARICOM Invoice", "Sequential Packing List", "Official Duties Assessment"]
+    EXTERNAL_DOCS = ["Bill of Lading Scan", "Original Invoice", "Original Packing List", "Tracker Document", "Other Documents", "Miscellaneous Supporting Doc"]
+    ALL_DOCS = SYSTEM_DOCS + EXTERNAL_DOCS
 
     for idx, row in df.iterrows():
-        # Parse Date & Status
+        inv_no = str(row.get('Invoice No', 'N/A'))
+        client_name = str(row.get('Client Name', 'Unknown Client'))
         raw_eta = row.get("ETA")
         timestamp = pd.to_datetime(raw_eta, errors='coerce')
         current_date = timestamp.date() if not pd.isna(timestamp) else datetime.now().date()
-        status_label, status_color = get_eta_status(current_date)
+        status_label, _ = get_eta_status(current_date)
         
-        # Dashboard Header
-        header_text = (f"📦 CTN: {row.get('Invoice No', 'N/A')} | {status_label} | ETA: {current_date} | "
-                       f"Cont: {row.get('Container #', 'N/A')} | Org: {row.get('Country of Origin', 'N/A')} | "
-                       f"Lgd: {row.get('Lodged Status', 'N/A')}")
+        header_text = (f"📦 CTN: {inv_no} | {status_label} | ETA: {current_date} | "
+                       f"Cont: {row.get('Container #', 'N/A')} | Lgd: {row.get('Lodged Status', 'N/A')}")
 
         with st.expander(header_text):
-            # Admin Fields (Data Entry)
+            
+            # --- METADATA SECTION ---
             col1, col2, col3, col4 = st.columns(4)
-            with col1: st.text_input("Container #", value=str(row.get("Container #", "")), key=f"cont_{idx}")
-            with col2: st.selectbox("Country of Origin", ["USA", "CHINA", "BRAZIL", "UK", "CANADA"], key=f"orig_{idx}")
-            with col3: st.date_input("ETA", value=current_date, key=f"eta_{idx}")
-            with col4: st.radio("Lodged Status", ["Yes", "No"], horizontal=True, key=f"lodged_{idx}")
+            if is_admin:
+                # Admin: Editable Fields
+                with col1: new_cont = st.text_input("Container #", value=str(row.get("Container #", "")), key=f"cont_{idx}")
+                with col2: new_orig = st.selectbox("Country of Origin", ["", "USA", "CHINA", "BRAZIL", "UK", "CANADA"], index=["", "USA", "CHINA", "BRAZIL", "UK", "CANADA"].index(row.get("Country of Origin", "")) if row.get("Country of Origin", "") in ["", "USA", "CHINA", "BRAZIL", "UK", "CANADA"] else 0, key=f"orig_{idx}")
+                with col3: new_eta = st.date_input("ETA", value=current_date, key=f"eta_{idx}")
+                with col4: new_lodg = st.radio("Lodged Status", ["Yes", "No"], index=0 if row.get("Lodged Status") == "Yes" else 1, horizontal=True, key=f"lodged_{idx}")
+            else:
+                # Staff: Read-Only Text
+                with col1: st.markdown(f"**Container #:**<br>{row.get('Container #', 'N/A')}", unsafe_allow_html=True)
+                with col2: st.markdown(f"**Origin:**<br>{row.get('Country of Origin', 'N/A')}", unsafe_allow_html=True)
+                with col3: st.markdown(f"**ETA:**<br>{current_date}", unsafe_allow_html=True)
+                with col4: st.markdown(f"**Lodged:**<br>{row.get('Lodged Status', 'No')}", unsafe_allow_html=True)
             
             st.write("---")
             st.subheader("Document Vault (10-Slot Matrix)")
             
-            # 10-Slot Grid
+            # --- DOCUMENT VAULT SECTION ---
             grid = st.columns(5)
-            for i, slot in enumerate(DOC_SLOTS):
+            upload_cache = {} # Temporarily hold files before save
+
+            for i, slot in enumerate(ALL_DOCS):
                 with grid[i % 5]:
                     st.markdown(f"**{slot}**")
-                    file_url = row.get(slot)
-                    if file_url and str(file_url).startswith("http"):
-                        st.link_button(f"👁️ View/Print", url=file_url, key=f"view_{idx}_{i}")
-                    st.file_uploader(f"Upload {slot}", key=f"up_{idx}_{i}", label_visibility="collapsed")
+                    file_link = str(row.get(slot, ""))
+                    
+                    # 1. Always show View Button if link exists
+                    if file_link.startswith("http"):
+                        st.link_button("📄 View Document", url=file_link, key=f"view_{idx}_{i}", width="stretch")
+                    else:
+                        st.button("Pending Upload", disabled=True, key=f"pend_{idx}_{i}", width="stretch")
+                    
+                    # 2. Add Uploader ONLY for Admin AND ONLY for External Docs
+                    if is_admin and slot in EXTERNAL_DOCS:
+                        uploaded_file = st.file_uploader(f"Upload {slot}", key=f"up_{idx}_{i}", label_visibility="collapsed")
+                        if uploaded_file:
+                            upload_cache[slot] = uploaded_file
             
-            if st.button("Save Shipment Updates", key=f"save_{idx}"):
-                st.success("Changes captured!")
+            # --- ADMIN SAVE LOGIC ---
+            if is_admin:
+                if st.button("💾 Save Shipment Updates", key=f"save_{idx}", type="primary"):
+                    with st.spinner("Processing updates and uploading files..."):
+                        df_update = load_log_data()
+                        row_index = df_update.index[df_update['Invoice No'].astype(str) == inv_no].tolist()[0]
+                        
+                        # Update Metadata
+                        df_update.at[row_index, "Container #"] = new_cont
+                        df_update.at[row_index, "Country of Origin"] = new_orig
+                        df_update.at[row_index, "ETA"] = str(new_eta)
+                        df_update.at[row_index, "Lodged Status"] = new_lodg
+
+                        # Upload physical files and update links
+                        for slot_name, up_file in upload_cache.items():
+                            doc_filename = f"{inv_no}_{slot_name.replace(' ', '_')}.pdf"
+                            new_link = upload_physical_file_to_drive(up_file, doc_filename, client_name, inv_no)
+                            if new_link:
+                                df_update.at[row_index, slot_name] = new_link
+                        
+                        # Sync to Google Sheets
+                        if save_log_data(df_update):
+                            st.success("✅ Updates saved! Links and data synced to Master Log.")
+                            st.rerun()
