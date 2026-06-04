@@ -14,7 +14,6 @@ def login():
         submitted = st.form_submit_button("Authenticate")
 
         if submitted:
-            # Check if the user exists in our Secrets Vault
             if "users" in st.secrets and username in st.secrets["users"]:
                 stored_password = st.secrets["users"][username]["password"]
                 role = st.secrets["users"][username]["role"]
@@ -22,7 +21,6 @@ def login():
                 if password == stored_password:
                     st.session_state["logged_in"] = True
                     st.session_state["username"] = username
-                    # Silently tag the user's permission level based on the TOML file
                     st.session_state["is_admin"] = (role == "admin") 
                     st.rerun()
                 else:
@@ -35,11 +33,10 @@ if "logged_in" not in st.session_state or not st.session_state["logged_in"]:
     login()
 else:
     # Map the physical files to the router
-    # Note: Ensure these paths exactly match the filenames in your 'pages' folder
-    master_log = st.Page("pages/2_Master_Log.py", title="Master Log", icon="🗄️")
     master_tracker = st.Page("pages/1_Master_Tracker.py", title="Master Tracker", icon="📦")
+    master_log = st.Page("pages/3_Master_Log.py", title="Master Log", icon="🗄️")
 
-    # If Admin (AllRounder): Show both pages. If Staff (Elton/Smallman): Show ONLY the Master Log.
+    # If Admin (AllRounder): Show both pages. If Staff (Elton/Smallman): Show ONLY Master Log.
     if st.session_state.get("is_admin", False):
         pg = st.navigation([master_log, master_tracker])
     else:
@@ -47,7 +44,6 @@ else:
 
     # Sidebar profile and logout
     with st.sidebar:
-        # Capitalizes the username for a clean display (e.g., "Allrounder", "Elton")
         st.markdown(f"👤 **User:** {st.session_state['username'].title()}")
         st.markdown(f"🛡️ **Role:** {'Administrator' if st.session_state['is_admin'] else 'Staff Operations'}")
         st.write("---")
