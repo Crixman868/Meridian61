@@ -18,7 +18,7 @@ from googleapiclient.http import MediaFileUpload
 st.set_page_config(page_title="Master Tracker", page_icon="📦", layout="wide")
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1ipB1DaIdX_BS_0iSWRHMwHcP-wEpfu2pZzFT3nJtlho/edit?gid=0#gid=0"
-ROOT_FOLDER_ID = "https://drive.google.com/drive/folders/19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"  # <--- Put your Meridian61_Cloud_Vault ID here!
+ROOT_FOLDER_ID = "19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"  # <--- Put your Meridian61_Cloud_Vault ID here!
 
 # --- GOOGLE AUTHENTICATION & DRIVE ENGINE ---
 def get_creds():
