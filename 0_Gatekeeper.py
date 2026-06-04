@@ -1,45 +1,59 @@
 import streamlit as st
-import json
-from google.oauth2 import service_account
 
-# 1. SETUP THE FRONT DOOR
-st.set_page_config(page_title="Meridian 61", page_icon="🔐")
+st.set_page_config(page_title="Meridian61 Portal", page_icon="🔐", layout="centered")
 
-# 2. CONNECT THE GOOGLE ROBOT TO THE VAULT
-def get_google_creds():
-    creds_dict = json.loads(st.secrets["google_api"]["credentials"])
-    return service_account.Credentials.from_service_account_info(creds_dict)
+# --- 1. THE BOUNCER (Authentication Logic) ---
+def login():
+    st.title("🔐 Meridian61 Secure Portal")
+    st.markdown("Enter your credentials to access the logistics network.")
 
-# 3. LOGIN LOGIC (Your Front Door)
-def check_password():
-    """Returns True if the user has the correct password."""
-    def password_entered():
-        # Changed variable to 'logged_in' for consistency across pages
-        if st.session_state["password"] == "Cocosteaw868": 
-            st.session_state["logged_in"] = True
-            del st.session_state["password"]
-        else:
-            st.session_state["logged_in"] = False
+    with st.form("login_form"):
+        # Automatically converts usernames to lowercase to prevent case-sensitive typos
+        username = st.text_input("Username").strip().lower()
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Authenticate")
 
-    if "logged_in" not in st.session_state:
-        # Show login screen
-        st.title("Meridian 61 Logistics")
-        st.subheader("Secure Gateway")
-        st.text_input("Secure Password", type="password", on_change=password_entered, key="password")
-        return False
-    elif not st.session_state["logged_in"]:
-        # Show error if wrong
-        st.error("😕 Password incorrect")
-        st.text_input("Secure Password", type="password", on_change=password_entered, key="password")
-        return False
+        if submitted:
+            # Check if the user exists in our Secrets Vault
+            if "users" in st.secrets and username in st.secrets["users"]:
+                stored_password = st.secrets["users"][username]["password"]
+                role = st.secrets["users"][username]["role"]
+
+                if password == stored_password:
+                    st.session_state["logged_in"] = True
+                    st.session_state["username"] = username
+                    # Silently tag the user's permission level based on the TOML file
+                    st.session_state["is_admin"] = (role == "admin") 
+                    st.rerun()
+                else:
+                    st.error("Invalid password.")
+            else:
+                st.error("User not found.")
+
+# --- 2. THE INVISIBLE DOOR (Dynamic Routing) ---
+if "logged_in" not in st.session_state or not st.session_state["logged_in"]:
+    login()
+else:
+    # Map the physical files to the router
+    # Note: Ensure these paths exactly match the filenames in your 'pages' folder
+    master_log = st.Page("pages/2_Master_Log.py", title="Master Log", icon="🗄️")
+    master_tracker = st.Page("pages/1_Master_Tracker.py", title="Master Tracker", icon="📦")
+
+    # If Admin (AllRounder): Show both pages. If Staff (Elton/Smallman): Show ONLY the Master Log.
+    if st.session_state.get("is_admin", False):
+        pg = st.navigation([master_log, master_tracker])
     else:
-        # Password is correct!
-        return True
+        pg = st.navigation([master_log])
 
-# 4. LET THEM IN
-if check_password():
-    # If login works, the robot gets the keys from the vault
-    creds = get_google_creds()
-    
-    st.success("Welcome, Authorized User!")
-    st.write("You are now in the system. Use the sidebar to track shipments.")
+    # Sidebar profile and logout
+    with st.sidebar:
+        # Capitalizes the username for a clean display (e.g., "Allrounder", "Elton")
+        st.markdown(f"👤 **User:** {st.session_state['username'].title()}")
+        st.markdown(f"🛡️ **Role:** {'Administrator' if st.session_state['is_admin'] else 'Staff Operations'}")
+        st.write("---")
+        if st.button("Log Out", use_container_width=True):
+            st.session_state.clear()
+            st.rerun()
+
+    # Execute the allowed navigation
+    pg.run()
