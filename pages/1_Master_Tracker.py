@@ -11,7 +11,7 @@ import tempfile
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from googleapiclient.http import MediaFileUpload
-from premailer import transform  # <--- NEW: CSS Inliner for perfect PDFs
+from weasyprint import HTML
 
 # ==========================================
 # ☁️ CONFIGURATION & SECURITY
@@ -25,6 +25,7 @@ if "logged_in" not in st.session_state or st.session_state["logged_in"] == False
     st.error("🚨 Access Denied. Please log in through the Secure Gatekeeper.")
     st.stop()
 
+# --- GOOGLE AUTHENTICATION & DRIVE ENGINE ---
 def get_creds():
     token_dict = json.loads(st.secrets["google_drive_human"]["token"])
     return Credentials.from_authorized_user_info(token_dict)
@@ -40,48 +41,33 @@ def upload_system_pdf_to_drive(html_content, file_name, client_name, invoice_no)
     try:
         drive = get_drive_service()
         
-        # Folder Routing
+        # 1. Folder Routing
         folders = drive.files().list(q=f"name='{client_name}' and '{ROOT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
         client_folder_id = folders[0]['id'] if folders else drive.files().create(body={"name": client_name, "parents": [ROOT_FOLDER_ID], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
         
         inv_folders = drive.files().list(q=f"name='{invoice_no}' and '{client_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
         inv_folder_id = inv_folders[0]['id'] if inv_folders else drive.files().create(body={"name": invoice_no, "parents": [client_folder_id], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
         
-        # CSS INLINING: Fuse styles into HTML for exact Google Drive rendering
-        styled_html = transform(html_content)
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".html", mode='w', encoding='utf-8') as temp_html:
-            temp_html.write(styled_html)
-            temp_html_path = temp_html.name
-            
-        # Upload as Google Doc to parse layout
-        doc_metadata = {'name': f"temp_{file_name}", 'parents': [inv_folder_id], 'mimeType': 'application/vnd.google-apps.document'}
-        media = MediaFileUpload(temp_html_path, mimetype='text/html', resumable=True)
-        temp_doc = drive.files().create(body=doc_metadata, media_body=media, fields='id').execute()
-        doc_id = temp_doc.get('id')
-        
-        # Export as locked PDF
-        request = drive.files().export_media(fileId=doc_id, mimeType='application/pdf')
-        pdf_bytes = request.execute()
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf", mode='wb') as temp_pdf:
-            temp_pdf.write(pdf_bytes)
+        # 2. WEASYPRINT NATIVE CONVERSION (The Exact Replica)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_pdf:
             temp_pdf_path = temp_pdf.name
             
+        HTML(string=html_content).write_pdf(temp_pdf_path)
+        
+        # 3. Upload the perfect PDF directly to the Vault
         pdf_metadata = {'name': file_name, 'parents': [inv_folder_id]}
         pdf_media = MediaFileUpload(temp_pdf_path, mimetype='application/pdf', resumable=True)
         final_pdf = drive.files().create(body=pdf_metadata, media_body=pdf_media, fields='id, webViewLink').execute()
         
-        # Clean up
-        drive.files().delete(fileId=doc_id).execute()
-        os.remove(temp_html_path)
+        # 4. Clean up
         os.remove(temp_pdf_path)
         
         return final_pdf.get('webViewLink', 'Upload Failed')
     except Exception as e:
-        st.error(f"Google Native Conversion Error for {file_name}: {e}")
+        st.error(f"PDF Engine Error for {file_name}: {e}")
         return "Upload Failed"
 
+# --- DATABASE ENGINES ---
 def load_log_data():
     try: return pd.DataFrame(get_gspread_client().open_by_url(SHEET_URL).sheet1.get_all_records())
     except: return pd.DataFrame()
@@ -118,6 +104,7 @@ def save_supplier_mapping(supplier, desc, qty, price):
     df = pd.concat([df, pd.DataFrame([{"Supplier": supplier, "DescCol": desc, "QtyCol": qty, "PriceCol": price}])], ignore_index=True)
     df.to_csv("supplier_mappings.csv", index=False)
 
+# --- DOCUMENT HTML FACTORY ---
 def generate_html_document(title, inv_no, date, client, c_addr, supplier, s_profile, bl, total_ctns, df, total_val, freight=None, additional_notes="", payment_terms="", signatory_position="", is_packing=False, is_caricom=False, is_duties=False, duty_data=None):
     logo_path = get_img_b64(f"logos/{s_profile.get('Name', '')}_logo.png")
     sig_path = get_img_b64(f"signatures/{s_profile.get('Name', '')}_sig.png")
@@ -332,7 +319,7 @@ with col2:
                             "Country of Origin": "", 
                             "ETA": str(invoice_date), 
                             "Lodged Status": "No",
-                            "Shipment Status": "Active", # Added status for closure
+                            "Shipment Status": "Active",
                             "NALDO": "No",
                             "Commercial Invoice": inv_link,
                             "CARICOM Invoice": car_link, 
@@ -352,7 +339,7 @@ with col2:
                             df_all = pd.DataFrame([new_row])
                             
                         save_log_data(df_all)
-                        st.success("🎉 Shipment data locked and synced! PDFs are now available in the Master Log.")
+                        st.success("🎉 Shipment data locked and synced! Exact Replica PDFs are now available in the Vault.")
                         st.balloons()
                     except Exception as sheet_err:
                         st.error(f"Integration Error: {sheet_err}")
