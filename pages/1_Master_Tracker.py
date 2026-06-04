@@ -18,6 +18,7 @@ from googleapiclient.http import MediaFileUpload
 st.set_page_config(page_title="Master Tracker", page_icon="📦", layout="wide")
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1ipB1DaIdX_BS_0iSWRHMwHcP-wEpfu2pZzFT3nJtlho/edit?gid=0#gid=0"
+ROOT_FOLDER_ID = "https://drive.google.com/drive/folders/19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"  # <--- Put your Meridian61_Cloud_Vault ID here!
 
 # --- GOOGLE AUTHENTICATION & DRIVE ENGINE ---
 def get_creds():
@@ -41,11 +42,11 @@ def upload_html_to_drive(html_content, file_name, client_name, invoice_no):
     try:
         drive = get_drive_service()
         
-        # 1. Find or create Client Folder
-        folders = drive.files().list(q=f"name='{client_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
-        client_folder_id = folders[0]['id'] if folders else drive.files().create(body={"name": client_name, "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
+        # 1. Find or create Client Folder INSIDE the Root Vault
+        folders = drive.files().list(q=f"name='{client_name}' and '{ROOT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
+        client_folder_id = folders[0]['id'] if folders else drive.files().create(body={"name": client_name, "parents": [ROOT_FOLDER_ID], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
         
-        # 2. Find or create Invoice Folder
+        # 2. Find or create Invoice Folder INSIDE the Client Folder
         inv_folders = drive.files().list(q=f"name='{invoice_no}' and '{client_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
         inv_folder_id = inv_folders[0]['id'] if inv_folders else drive.files().create(body={"name": invoice_no, "parents": [client_folder_id], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
         
@@ -288,7 +289,7 @@ with col2:
                 
         with t_pck:
             st.markdown("##### Interactive Packing Line Sheet")
-            edited_pck_df = st.data_editor(st.session_state["pck_working_df"], disabled=["SPECIFICATION OF COMMODITIES", "QUANTITY"], key="pck_table_editor", use_container_width=True)
+            edited_pck_df = st.data_editor(st.session_state["pck_working_df"], disabled=["SPECIFICATION OF COMMODITIES", "QUANTITY"], key="pck_table_editor", width="stretch")
             st.session_state["pck_working_df"] = edited_pck_df
 
             calculated_rows = []
@@ -319,7 +320,7 @@ with col2:
 
         # --- MASTER LOG DATABASE SYNCHRONIZATION AND DRIVE UPLOAD ---
         st.write("---")
-        if st.button("💾 Commit Data & Send to Master Log", type="primary", use_container_width=True):
+        if st.button("💾 Commit Data & Send to Master Log", type="primary", width="stretch"):
             if client_name != "Select a Client..." and supplier_name != "Select a Supplier...":
                 with st.spinner("Uploading Documents and Syncing to Master Log..."):
                     try:
