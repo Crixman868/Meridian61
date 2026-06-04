@@ -3,6 +3,7 @@ import pandas as pd
 import gspread
 import json
 import os
+import re
 import tempfile
 from datetime import datetime
 from googleapiclient.discovery import build
@@ -154,9 +155,13 @@ else:
                     file_link = str(row.get(slot, ""))
                     
                     if file_link.startswith("http"):
-                        # --- THE GOOGLE LOGIN BYPASS ---
-                        # Automatically converts standard Drive links into raw Preview links
-                        clean_link = file_link.replace("/view?usp=drivesdk", "/preview").replace("/view", "/preview")
+                        # --- THE NUCLEAR BYPASS ---
+                        # Extracts the hidden ID from the URL and forces a raw OS download
+                        clean_link = file_link
+                        match = re.search(r'/d/([a-zA-Z0-9_-]+)', file_link)
+                        if match:
+                            file_id = match.group(1)
+                            clean_link = f"https://drive.google.com/uc?export=download&id={file_id}"
                         
                         st.link_button("📄 View Document", url=clean_link, key=f"view_{idx}_{i}", width="stretch")
                     else:
