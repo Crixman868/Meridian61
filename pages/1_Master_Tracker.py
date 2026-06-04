@@ -9,7 +9,7 @@ import jinja2
 import re
 import tempfile
 from googleapiclient.discovery import build
-from google.oauth2.service_account import Credentials
+from google.oauth2.credentials import Credentials
 from googleapiclient.http import MediaFileUpload
 
 # ==========================================
@@ -18,15 +18,13 @@ from googleapiclient.http import MediaFileUpload
 st.set_page_config(page_title="Master Tracker", page_icon="📦", layout="wide")
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1ipB1DaIdX_BS_0iSWRHMwHcP-wEpfu2pZzFT3nJtlho/edit?gid=0#gid=0"
-ROOT_FOLDER_ID = "19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"  # <--- Put your Meridian61_Cloud_Vault ID here!
+ROOT_FOLDER_ID = "19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"
 
 # --- GOOGLE AUTHENTICATION & DRIVE ENGINE ---
 def get_creds():
-    creds_dict = json.loads(st.secrets["google_api"]["credentials"])
-    return Credentials.from_service_account_info(
-        creds_dict,
-        scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    )
+    # Using Human Token to bypass 0-byte Service Account quota limits
+    token_dict = json.loads(st.secrets["google_drive_human"]["token"])
+    return Credentials.from_authorized_user_info(token_dict)
 
 def get_gspread_client():
     creds = get_creds()
