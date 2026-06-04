@@ -91,7 +91,7 @@ def get_eta_status(eta_date, shipment_status):
 # --- UI & LOGIC ---
 st.title("🗄️ Master Log: Logistics Control Tower")
 
-is_admin = st.session_state.get("is_admin", True) 
+is_admin = st.session_state.get("is_admin", False) 
 
 df = load_log_data()
 
@@ -122,7 +122,6 @@ else:
         with st.expander(header_text):
             
             # --- METADATA SECTION ---
-            # Using 6 columns to push NALDO to the very end
             col1, col2, col3, col4, col5, col6 = st.columns(6)
             
             if is_admin:
@@ -155,7 +154,11 @@ else:
                     file_link = str(row.get(slot, ""))
                     
                     if file_link.startswith("http"):
-                        st.link_button("📄 View Document", url=file_link, key=f"view_{idx}_{i}", width="stretch")
+                        # --- THE GOOGLE LOGIN BYPASS ---
+                        # Automatically converts standard Drive links into raw Preview links
+                        clean_link = file_link.replace("/view?usp=drivesdk", "/preview").replace("/view", "/preview")
+                        
+                        st.link_button("📄 View Document", url=clean_link, key=f"view_{idx}_{i}", width="stretch")
                     else:
                         st.button("Pending Upload", disabled=True, key=f"pend_{idx}_{i}", width="stretch")
                     
