@@ -8,10 +8,10 @@ import json
 import jinja2
 import re
 import tempfile
+import pdfkit
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from googleapiclient.http import MediaFileUpload
-from xhtml2pdf import pisa
 
 # ==========================================
 # ☁️ CONFIGURATION & SECURITY
@@ -38,9 +38,22 @@ def get_drive_service():
     return build('drive', 'v3', credentials=get_creds())
 
 def convert_html_to_pdf(source_html, output_filename):
-    with open(output_filename, "w+b") as result_file:
-        pisa_status = pisa.CreatePDF(source_html, dest=result_file)
-    return pisa_status.err
+    try:
+        # Configuration for clean, standard 8.5x11 pages
+        options = {
+            'page-size': 'Letter',
+            'margin-top': '0.75in',
+            'margin-right': '0.75in',
+            'margin-bottom': '0.75in',
+            'margin-left': '0.75in',
+            'encoding': "UTF-8",
+            'enable-local-file-access': ""
+        }
+        pdfkit.from_string(source_html, output_filename, options=options)
+        return False # No errors
+    except Exception as e:
+        st.error(f"PDFKit Conversion Error: {e}")
+        return True # Error occurred
 
 def upload_system_pdf_to_drive(html_content, file_name, client_name, invoice_no):
     if not html_content: return "Pending Upload"
@@ -61,7 +74,6 @@ def upload_system_pdf_to_drive(html_content, file_name, client_name, invoice_no)
             
         conversion_error = convert_html_to_pdf(html_content, temp_pdf_path)
         if conversion_error:
-            st.error(f"PDF Conversion failed for {file_name}")
             return "Upload Failed"
 
         # 4. Upload PDF to Drive
