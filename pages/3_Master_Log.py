@@ -14,12 +14,19 @@ st.set_page_config(page_title="Master Log", layout="wide")
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1ipB1DaIdX_BS_0iSWRHMwHcP-wEpfu2pZzFT3nJtlho/edit?gid=0#gid=0"
 ROOT_FOLDER_ID = "19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"
 
-# --- SECURITY GATEKEEPER VALIDATION ---
+# Expanded Logistics Country List
+ALL_COUNTRIES = [
+    "", "USA", "China", "UK", "Canada", "Brazil", "Mexico", "Japan", "Germany", 
+    "India", "France", "Italy", "South Korea", "Spain", "Australia", "Taiwan", 
+    "Netherlands", "Vietnam", "Malaysia", "Singapore", "South Africa", "UAE", 
+    "Saudi Arabia", "Switzerland", "Sweden", "Poland", "Belgium", "Thailand", 
+    "Indonesia", "Turkey", "Philippines", "Ireland", "Other"
+]
+
 if "logged_in" not in st.session_state or st.session_state["logged_in"] == False:
     st.error("🚨 Access Denied. Please log in through the Secure Gatekeeper.")
     st.stop()
 
-# --- GOOGLE DRIVE ENGINE (Human Token) ---
 def get_creds():
     token_dict = json.loads(st.secrets["google_drive_human"]["token"])
     return Credentials.from_authorized_user_info(token_dict)
@@ -34,22 +41,17 @@ def upload_physical_file_to_drive(uploaded_file, file_name, client_name, invoice
     if not uploaded_file: return None
     try:
         drive = get_drive_service()
-        
-        # 1. Find/Create Client Folder in Vault
         folders = drive.files().list(q=f"name='{client_name}' and '{ROOT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
         client_folder_id = folders[0]['id'] if folders else drive.files().create(body={"name": client_name, "parents": [ROOT_FOLDER_ID], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
         
-        # 2. Find/Create Invoice Folder
         inv_folders = drive.files().list(q=f"name='{invoice_no}' and '{client_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
         inv_folder_id = inv_folders[0]['id'] if inv_folders else drive.files().create(body={"name": invoice_no, "parents": [client_folder_id], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
         
-        # 3. Create physical temp file from Streamlit uploader
         file_ext = os.path.splitext(uploaded_file.name)[1]
         with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
             temp_file.write(uploaded_file.getvalue())
             temp_path = temp_file.name
 
-        # 4. Upload to Drive
         file_metadata = {'name': file_name, 'parents': [inv_folder_id]}
         media = MediaFileUpload(temp_path, resumable=True)
         file = drive.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
@@ -57,10 +59,9 @@ def upload_physical_file_to_drive(uploaded_file, file_name, client_name, invoice
         os.remove(temp_path)
         return file.get('webViewLink')
     except Exception as e:
-        st.error(f"Drive Upload Error for {file_name}: {e}")
+        st.error(f"Drive Upload Error: {e}")
         return None
 
-# --- DATABASE ENGINES ---
 def load_log_data():
     try: return pd.DataFrame(get_gspread_client().open_by_url(SHEET_URL).sheet1.get_all_records())
     except: return pd.DataFrame()
@@ -75,7 +76,10 @@ def save_log_data(df):
         st.error(f"Failed to sync with Google Sheets: {e}")
         return False
 
-def get_eta_status(eta_date):
+def get_eta_status(eta_date, shipment_status):
+    if shipment_status == "Delivered":
+        return "✅ DELIVERED", "#00b050"
+        
     try:
         days_diff = (eta_date - datetime.now().date()).days
         if days_diff < 0: return "⚠️ Overdue", "#FF4500"
@@ -87,7 +91,6 @@ def get_eta_status(eta_date):
 # --- UI & LOGIC ---
 st.title("🗄️ Master Log: Logistics Control Tower")
 
-# 🔒 ROLE CHECK (Set to False to see Staff view)
 is_admin = st.session_state.get("is_admin", True) 
 
 df = load_log_data()
@@ -102,50 +105,60 @@ else:
     for idx, row in df.iterrows():
         inv_no = str(row.get('Invoice No', 'N/A'))
         client_name = str(row.get('Client Name', 'Unknown Client'))
+        ship_status = str(row.get("Shipment Status", "Active"))
+        
         raw_eta = row.get("ETA")
         timestamp = pd.to_datetime(raw_eta, errors='coerce')
         current_date = timestamp.date() if not pd.isna(timestamp) else datetime.now().date()
-        status_label, _ = get_eta_status(current_date)
+        status_label, _ = get_eta_status(current_date, ship_status)
+        
+        # NALDO Visual Formatting
+        naldo_val = str(row.get("NALDO", "No")).strip().upper()
+        naldo_display = f"🔴 NALDO: YES" if naldo_val == "YES" else f"⚪ NALDO: NO"
         
         header_text = (f"📦 CTN: {inv_no} | {status_label} | ETA: {current_date} | "
-                       f"Cont: {row.get('Container #', 'N/A')} | Lgd: {row.get('Lodged Status', 'N/A')}")
+                       f"Cont: {row.get('Container #', 'N/A')} | Lgd: {row.get('Lodged Status', 'N/A')} | {naldo_display}")
 
         with st.expander(header_text):
             
             # --- METADATA SECTION ---
-            col1, col2, col3, col4 = st.columns(4)
+            # Using 6 columns to push NALDO to the very end
+            col1, col2, col3, col4, col5, col6 = st.columns(6)
+            
             if is_admin:
                 # Admin: Editable Fields
                 with col1: new_cont = st.text_input("Container #", value=str(row.get("Container #", "")), key=f"cont_{idx}")
-                with col2: new_orig = st.selectbox("Country of Origin", ["", "USA", "CHINA", "BRAZIL", "UK", "CANADA"], index=["", "USA", "CHINA", "BRAZIL", "UK", "CANADA"].index(row.get("Country of Origin", "")) if row.get("Country of Origin", "") in ["", "USA", "CHINA", "BRAZIL", "UK", "CANADA"] else 0, key=f"orig_{idx}")
+                with col2: new_orig = st.selectbox("Country of Origin", ALL_COUNTRIES, index=ALL_COUNTRIES.index(row.get("Country of Origin", "")) if row.get("Country of Origin", "") in ALL_COUNTRIES else 0, key=f"orig_{idx}")
                 with col3: new_eta = st.date_input("ETA", value=current_date, key=f"eta_{idx}")
-                with col4: new_lodg = st.radio("Lodged Status", ["Yes", "No"], index=0 if row.get("Lodged Status") == "Yes" else 1, horizontal=True, key=f"lodged_{idx}")
+                with col4: new_lodg = st.radio("Lodged", ["Yes", "No"], index=0 if row.get("Lodged Status") == "Yes" else 1, horizontal=True, key=f"lodged_{idx}")
+                with col5: new_stat = st.selectbox("Shipment Status", ["Active", "Delivered"], index=0 if ship_status != "Delivered" else 1, key=f"stat_{idx}")
+                with col6: new_naldo = st.radio("NALDO Code", ["Yes", "No"], index=0 if naldo_val == "YES" else 1, horizontal=True, key=f"naldo_{idx}")
             else:
                 # Staff: Read-Only Text
                 with col1: st.markdown(f"**Container #:**<br>{row.get('Container #', 'N/A')}", unsafe_allow_html=True)
                 with col2: st.markdown(f"**Origin:**<br>{row.get('Country of Origin', 'N/A')}", unsafe_allow_html=True)
                 with col3: st.markdown(f"**ETA:**<br>{current_date}", unsafe_allow_html=True)
                 with col4: st.markdown(f"**Lodged:**<br>{row.get('Lodged Status', 'No')}", unsafe_allow_html=True)
+                with col5: st.markdown(f"**Status:**<br>{ship_status}", unsafe_allow_html=True)
+                with col6: st.markdown(f"**NALDO Code:**<br>{'Yes' if naldo_val == 'YES' else 'No'}", unsafe_allow_html=True)
             
             st.write("---")
             st.subheader("Document Vault (10-Slot Matrix)")
             
             # --- DOCUMENT VAULT SECTION ---
             grid = st.columns(5)
-            upload_cache = {} # Temporarily hold files before save
+            upload_cache = {} 
 
             for i, slot in enumerate(ALL_DOCS):
                 with grid[i % 5]:
                     st.markdown(f"**{slot}**")
                     file_link = str(row.get(slot, ""))
                     
-                    # 1. Always show View Button if link exists
                     if file_link.startswith("http"):
                         st.link_button("📄 View Document", url=file_link, key=f"view_{idx}_{i}", width="stretch")
                     else:
                         st.button("Pending Upload", disabled=True, key=f"pend_{idx}_{i}", width="stretch")
                     
-                    # 2. Add Uploader ONLY for Admin AND ONLY for External Docs
                     if is_admin and slot in EXTERNAL_DOCS:
                         uploaded_file = st.file_uploader(f"Upload {slot}", key=f"up_{idx}_{i}", label_visibility="collapsed")
                         if uploaded_file:
@@ -158,20 +171,19 @@ else:
                         df_update = load_log_data()
                         row_index = df_update.index[df_update['Invoice No'].astype(str) == inv_no].tolist()[0]
                         
-                        # Update Metadata
                         df_update.at[row_index, "Container #"] = new_cont
                         df_update.at[row_index, "Country of Origin"] = new_orig
                         df_update.at[row_index, "ETA"] = str(new_eta)
                         df_update.at[row_index, "Lodged Status"] = new_lodg
+                        df_update.at[row_index, "Shipment Status"] = new_stat
+                        df_update.at[row_index, "NALDO"] = new_naldo
 
-                        # Upload physical files and update links
                         for slot_name, up_file in upload_cache.items():
                             doc_filename = f"{inv_no}_{slot_name.replace(' ', '_')}.pdf"
                             new_link = upload_physical_file_to_drive(up_file, doc_filename, client_name, inv_no)
                             if new_link:
                                 df_update.at[row_index, slot_name] = new_link
                         
-                        # Sync to Google Sheets
                         if save_log_data(df_update):
                             st.success("✅ Updates saved! Links and data synced to Master Log.")
                             st.rerun()
