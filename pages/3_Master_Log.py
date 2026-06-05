@@ -7,7 +7,8 @@ import re
 import tempfile
 from datetime import datetime
 from googleapiclient.discovery import build
-from google.oauth2.credentials import Credentials
+from google.oauth2.credentials import Credentials as HumanCredentials
+from google.oauth2.service_account import Credentials as BotCredentials
 from googleapiclient.http import MediaFileUpload
 
 # --- CONFIG & AUTH ---
@@ -33,15 +34,24 @@ ALL_COUNTRIES = [
     "Indonesia", "Turkey", "Philippines", "Ireland", "Other"
 ]
 
-def get_creds():
-    token_dict = json.loads(st.secrets["google_drive_human"]["token"])
-    return Credentials.from_authorized_user_info(token_dict)
+# --- THE HYBRID AUTHENTICATION SYSTEM ---
 
 def get_gspread_client():
-    return gspread.authorize(get_creds())
+    # 🤖 BOT CONNECTION (NEVER EXPIRES) - Used only for reading/writing data
+    creds_dict = json.loads(st.secrets["google_api"]["credentials"])
+    creds = BotCredentials.from_service_account_info(
+        creds_dict, 
+        scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.readonly"]
+    )
+    return gspread.authorize(creds)
 
 def get_drive_service():
-    return build('drive', 'v3', credentials=get_creds())
+    # 👤 HUMAN CONNECTION (REQUIRES REFRESH) - Used only for uploading PDFs
+    token_dict = json.loads(st.secrets["google_drive_human"]["token"])
+    creds = HumanCredentials.from_authorized_user_info(token_dict)
+    return build('drive', 'v3', credentials=creds)
+
+# ----------------------------------------
 
 def upload_physical_file_to_drive(uploaded_file, file_name, client_name, invoice_no):
     if not uploaded_file: return None
@@ -69,8 +79,11 @@ def upload_physical_file_to_drive(uploaded_file, file_name, client_name, invoice
         return None
 
 def load_log_data():
-    try: return pd.DataFrame(get_gspread_client().open_by_url(SHEET_URL).sheet1.get_all_records())
-    except: return pd.DataFrame()
+    try: 
+        return pd.DataFrame(get_gspread_client().open_by_url(SHEET_URL).sheet1.get_all_records())
+    except Exception as e: 
+        st.error(f"Failed to load data: {e}")
+        return pd.DataFrame()
 
 def save_log_data(df):
     try:
@@ -157,9 +170,9 @@ else:
                         if match:
                             file_id = match.group(1)
                             clean_link = f"https://drive.google.com/uc?export=download&id={file_id}"
-                        st.link_button("📄 View Document", url=clean_link, key=f"view_{idx}_{i}")
+                        st.link_button("📄 View Document", url=clean_link, key=f"view_{idx}_{i}", width="stretch")
                     else:
-                        st.button("Pending Upload", disabled=True, key=f"pend_{idx}_{i}")
+                        st.button("Pending Upload", disabled=True, key=f"pend_{idx}_{i}", width="stretch")
                     
                     if is_admin and slot in EXTERNAL_DOCS:
                         uploaded_file = st.file_uploader(f"Upload {slot}", key=f"up_{idx}_{i}", label_visibility="collapsed")
