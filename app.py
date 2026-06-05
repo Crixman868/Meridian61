@@ -1,11 +1,11 @@
 import streamlit as st
-from pages import tracker_app, master_log
 
-# Initialize State
+st.set_page_config(page_title="Meridian Gatekeeper", page_icon="🔐")
+
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
-# Traffic Cop Logic
+# The Traffic Cop Logic
 if not st.session_state["logged_in"]:
     st.title("🔐 Meridian Logistics Gatekeeper")
     with st.form("login_form"):
@@ -22,8 +22,8 @@ if not st.session_state["logged_in"]:
         else:
             st.error("Invalid credentials.")
 else:
-    # Router: Direct calls, no page switching!
+    # Router: Directs users based on their role
     if st.session_state.get("role") == "admin":
-        tracker_app.main()
+        st.switch_page("pages/tracker_app.py")
     else:
-        master_log.main()
+        st.switch_page("pages/master_log.py")
