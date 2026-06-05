@@ -12,9 +12,10 @@ st.markdown("""
         display: none !important;
     }
     
-    /* 2. The Custom Orange Orbital Background */
+    /* 2. The Custom Orange Orbital Background - NOW PURE WHITE BASE */
+    /* By using #FFFFFF, the white square behind your logo completely disappears */
     .stApp {
-        background-color: #FAFAFA;
+        background-color: #FFFFFF;
         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 900' preserveAspectRatio='xMidYMid slice'%3E%3Cpath d='M-200,1000 C400,600 1000,200 1600,-200' fill='none' stroke='%23FF6700' stroke-width='120' stroke-opacity='0.12' /%3E%3Cpath d='M-200,1000 C400,600 1000,200 1600,-200' fill='none' stroke='%23FF6700' stroke-width='8' stroke-opacity='0.45' transform='translate(0, -60)' /%3E%3C/svg%3E");
         background-attachment: fixed;
         background-position: center;
@@ -47,21 +48,25 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- NATIVE STREAMLIT CENTERING ---
+# Squeeze the entire form into the middle of the screen
 spacer_left, main_col, spacer_right = st.columns([1, 1.2, 1])
 
 with main_col:
-    # --- LOGO SECTION ---
-    st.markdown("<div style='display: flex; justify-content: center; margin-bottom: 10px;'>", unsafe_allow_html=True)
-    if os.path.exists("assets/logo.png"):
-        st.image("assets/logo.png", width=280)
-    elif os.path.exists("logo.png"):
-        st.image("logo.png", width=280)
-    else:
-        st.warning("⚠️ Logo file missing. System running in text-only mode.")
-    st.markdown("</div>", unsafe_allow_html=True)
+    # --- EXACT LOGO CENTERING ---
+    # We use another set of columns specifically to lock the image dead-center
+    st.write("") # Small spacer at the top
+    logo_left, logo_center, logo_right = st.columns([1, 1.5, 1])
+    
+    with logo_center:
+        if os.path.exists("assets/logo.png"):
+            st.image("assets/logo.png", use_container_width=True)
+        elif os.path.exists("logo.png"):
+            st.image("logo.png", use_container_width=True)
+        else:
+            st.warning("⚠️ Logo file missing. System running in text-only mode.")
 
     # --- TITLES ---
-    st.markdown("<h2 style='text-align: center; color: #0A2240; margin-bottom: 0px; padding-bottom: 0px;'>Portal Access</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center; color: #0A2240; margin-bottom: 0px; padding-top: 10px;'>Portal Access</h2>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: #666666; margin-bottom: 30px; font-size: 16px;'>Secure Gatekeeper</p>", unsafe_allow_html=True)
 
     # --- LOGIN FORM ---
