@@ -7,7 +7,7 @@ if "logged_in" not in st.session_state:
 
 if not st.session_state["logged_in"]:
     st.title("🔐 Meridian Logistics Gatekeeper")
-    with st.form("login"):
+    with st.form("login_form"):
         username = st.text_input("Username").strip().lower()
         password = st.text_input("Password", type="password")
         if st.form_submit_button("Access System"):
@@ -19,8 +19,9 @@ if not st.session_state["logged_in"]:
             else:
                 st.error("Invalid credentials.")
 else:
-    # Router: Use st.switch_page for the pages folder
+    # After logging in, just tell the user where to go
+    st.success("Authentication successful!")
     if st.session_state.get("role") == "admin":
-        st.switch_page("pages/tracker_app.py")
+        st.page_link("pages/tracker_app.py", label="Go to Master Tracker")
     else:
-        st.switch_page("pages/master_log.py")
+        st.page_link("pages/master_log.py", label="Go to Master Log")
