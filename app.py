@@ -20,9 +20,11 @@ from weasyprint import HTML
 # ==========================================
 st.set_page_config(page_title="Meridian Logistics", page_icon="📦", layout="wide")
 
+COMPANY_LOGO_PATH = "company_logo.png" # Place your logo image in the main folder with this name
+
 st.markdown("""
 <style>
-    /* White background with subtle geometric shading */
+    /* White background with subtle geometric shading for the main app */
     .stApp {
         background-color: #ffffff;
         background-image: 
@@ -55,6 +57,36 @@ st.markdown("""
     [data-testid="stExpander"] h4, 
     [data-testid="stExpander"] h5 {
         color: #1e293b !important;
+    }
+
+    /* --- GATEKEEPER LOGIN CSS --- */
+    .login-wrapper {
+        max-width: 400px;
+        margin: 5vh auto 20px auto;
+        text-align: center;
+    }
+    [data-testid="stForm"] {
+        max-width: 400px;
+        margin: 0 auto;
+        padding: 2.5rem;
+        border-radius: 12px;
+        box-shadow: 0px 10px 30px rgba(0, 0, 0, 0.08);
+        background-color: #ffffff;
+        border: 1px solid #f1f5f9;
+    }
+    [data-testid="stFormSubmitButton"] button {
+        width: 100%;
+        background-color: #0f172a !important; /* Dark slate blue */
+        color: white !important;
+        font-weight: 600;
+        border-radius: 8px;
+        padding: 0.6rem;
+        transition: all 0.3s ease;
+        margin-top: 10px;
+    }
+    [data-testid="stFormSubmitButton"] button:hover {
+        background-color: #1e293b !important;
+        box-shadow: 0px 4px 10px rgba(15, 23, 42, 0.3);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -553,13 +585,24 @@ if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
     st.session_state["role"] = None
 
-# If not authenticated, show the login form
+# If not authenticated, show the beautiful login form
 if not st.session_state["logged_in"]:
-    st.title("🔐 Meridian Logistics Gatekeeper")
+    
+    st.markdown("<div class='login-wrapper'>", unsafe_allow_html=True)
+    
+    # 1. Load the Logo
+    if os.path.exists(COMPANY_LOGO_PATH):
+        st.image(COMPANY_LOGO_PATH, use_container_width=True)
+    else:
+        st.markdown("<h2 style='color: #1e293b; margin-bottom: 0px;'>🚢 Majestic Freight</h2>", unsafe_allow_html=True)
+    
+    st.markdown("<p style='color: #64748b; margin-bottom: 25px;'>Secure Gatekeeper Authorization</p>", unsafe_allow_html=True)
+    
+    # 2. Render the styled form
     with st.form("login"):
         username = st.text_input("Username").strip().lower()
         password = st.text_input("Password", type="password")
-        if st.form_submit_button("Access"):
+        if st.form_submit_button("Access System"):
             users = st.secrets.get("users", {})
             if username in users and users[username].get("password") == password:
                 # Set Session State
@@ -574,6 +617,9 @@ if not st.session_state["logged_in"]:
                 st.rerun()
             else:
                 st.error("Invalid credentials.")
+                
+    st.markdown("</div>", unsafe_allow_html=True)
+
 else:
     # --- The user is Authenticated ---
     is_admin = (st.session_state.get("role") == "admin")
