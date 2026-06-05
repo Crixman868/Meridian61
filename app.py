@@ -2,31 +2,33 @@ import streamlit as st
 
 st.set_page_config(page_title="Meridian Logistics", page_icon="🔐")
 
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
+# 1. Check if already logged in via URL
+if st.query_params.get("auth") == "yes":
+    st.session_state["logged_in"] = True
+    st.session_state["role"] = st.query_params.get("role")
 
-# 1. LOGIN LOGIC
-if not st.session_state["logged_in"]:
+# 2. Login Form
+if not st.session_state.get("logged_in", False):
     st.title("🔐 Meridian Logistics Gatekeeper")
-    with st.form("login_form"):
+    with st.form("login"):
         username = st.text_input("Username").strip().lower()
         password = st.text_input("Password", type="password")
-        submit = st.form_submit_button("Access System")
-    
-    if submit:
-        users = st.secrets.get("users", {})
-        if username in users and users[username].get("password") == password:
-            st.session_state["logged_in"] = True
-            st.session_state["role"] = users[username].get("role")
-            st.rerun()
-        else:
-            st.error("Invalid credentials.")
+        if st.form_submit_button("Access"):
+            users = st.secrets.get("users", {})
+            if username in users and users[username].get("password") == password:
+                # Set session and URL parameters to "stick" the login
+                role = users[username].get("role")
+                st.query_params["auth"] = "yes"
+                st.query_params["role"] = role
+                st.session_state["logged_in"] = True
+                st.session_state["role"] = role
+                st.rerun()
+            else:
+                st.error("Invalid credentials.")
 else:
-    # 2. REDIRECT SCREEN
-    st.success("Authentication successful!")
-    st.write("Please use the sidebar on the left to navigate to your workspace.")
-    
-    # Simple Logout
-    if st.sidebar.button("Logout"):
-        st.session_state["logged_in"] = False
-        st.rerun()
+    # 3. Navigation (Do NOT use switch_page, use page_link)
+    st.success("Authenticated.")
+    if st.session_state.get("role") == "admin":
+        st.page_link("pages/tracker_app.py", label="📦 Go to Master Tracker")
+    else:
+        st.page_link("pages/master_log.py", label="📋 Go to Master Log")
