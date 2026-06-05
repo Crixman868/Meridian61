@@ -1,16 +1,14 @@
 import streamlit as st
 
-# SECURITY BLOCK: Stop execution if not logged in
+# SECURITY: If NOT logged in, just stop the app.
 if not st.session_state.get("logged_in", False):
     st.error("Please log in first.")
-    st.stop() # Stops the app here, prevents crash
+    st.stop() 
 
-# Shopfloor Logout
 if st.sidebar.button("Logout"):
     st.session_state["logged_in"] = False
     st.rerun()
 
-# --- MASTER LOG CODE ---
 st.title("📋 Master Log")
 import pandas as pd
 import gspread
