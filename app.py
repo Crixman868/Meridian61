@@ -2,11 +2,11 @@ import streamlit as st
 import pages.tracker_app as tracker_app
 import pages.master_log as master_log
 
-# Initialize State
+# Initialize Session State
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
-# 3. Gatekeeper Logic
+# Traffic Cop Logic
 if not st.session_state["logged_in"]:
     st.title("🔐 Meridian Logistics Gatekeeper")
     with st.form("login_form"):
@@ -23,7 +23,7 @@ if not st.session_state["logged_in"]:
         else:
             st.error("Invalid credentials.")
 else:
-    # Traffic Cop: Send Admin to Tracker, Shopfloor to Log
+    # Route to the correct app
     if st.session_state.get("role") == "admin":
         tracker_app.main()
     else:
