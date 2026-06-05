@@ -1,13 +1,15 @@
 import streamlit as st
 
-# --- STRICT ADMIN SECURITY BLOCK ---
+# Security Block
 if not st.session_state.get("logged_in", False):
-    st.switch_page("0_Gatekeeper.py")
+    st.switch_page("app.py")
 
-if not st.session_state.get("is_admin", False):
-    st.error("🚨 RESTRICTED AREA: Administrator clearance required.")
-    st.stop() 
+if st.session_state.get("role") != "admin":
+    st.error("🚨 Restricted Area")
+    st.stop()
 
+# --- YOUR TRACKER APP CODE STARTS HERE ---
+st.title("📦 Master Tracker")
 import streamlit.components.v1 as components
 import pandas as pd
 import os
