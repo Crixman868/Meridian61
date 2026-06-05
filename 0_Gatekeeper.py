@@ -1,55 +1,54 @@
 import streamlit as st
 
-st.set_page_config(page_title="Meridian61 Portal", page_icon="🔐", layout="centered")
+# --- CONFIG ---
+st.set_page_config(page_title="Meridian 61 Access", page_icon="🌐")
 
-# --- 1. THE BOUNCER (Authentication Logic) ---
-def login():
-    st.title("🔐 Meridian61 Secure Portal")
-    st.markdown("Enter your credentials to access the logistics network.")
+# --- BRANDING & STYLING ---
+st.markdown("""
+    <style>
+    /* Dark Navy Background for the Page */
+    .stApp {
+        background-color: #0A2240;
+    }
+    /* Floating White Card for the Login Form */
+    .login-card {
+        background-color: white;
+        padding: 40px;
+        border-radius: 20px;
+        box-shadow: 0px 10px 30px rgba(0,0,0,0.3);
+    }
+    /* Custom Orange Button */
+    div.stButton > button {
+        background-color: #FF6700 !important;
+        color: white !important;
+        border: none !important;
+        font-weight: bold !important;
+        width: 100% !important;
+        border-radius: 10px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-    with st.form("login_form"):
-        # Automatically converts usernames to lowercase to prevent case-sensitive typos
-        username = st.text_input("Username").strip().lower()
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Authenticate")
+# --- LOGO & LOGIN INTERFACE ---
+# Ensure you have your logo file in a 'logos' folder or current directory
+st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
+st.image("Meridian 61 Logistics Ltd..png", width=300)
+st.markdown("</div>", unsafe_allow_html=True)
 
-        if submitted:
-            if "users" in st.secrets and username in st.secrets["users"]:
-                stored_password = st.secrets["users"][username]["password"]
-                role = st.secrets["users"][username]["role"]
+st.markdown("<div class='login-card'>", unsafe_allow_html=True)
+st.subheader("Login to Meridian 61")
+st.write("Enter your credentials to access the Master Log.")
 
-                if password == stored_password:
-                    st.session_state["logged_in"] = True
-                    st.session_state["username"] = username
-                    st.session_state["is_admin"] = (role == "admin") 
-                    st.rerun()
-                else:
-                    st.error("Invalid password.")
-            else:
-                st.error("User not found.")
+user = st.text_input("Username")
+password = st.text_input("Password", type="password")
 
-# --- 2. THE INVISIBLE DOOR (Dynamic Routing) ---
-if "logged_in" not in st.session_state or not st.session_state["logged_in"]:
-    login()
-else:
-    # Map the physical files to the router
-    master_tracker = st.Page("pages/1_Master_Tracker.py", title="Master Tracker", icon="📦")
-    master_log = st.Page("pages/3_Master_Log.py", title="Master Log", icon="🗄️")
-
-    # If Admin (AllRounder): Show both pages. If Staff (Elton/Smallman): Show ONLY Master Log.
-    if st.session_state.get("is_admin", False):
-        pg = st.navigation([master_log, master_tracker])
+if st.button("Enter Portal"):
+    if user == "Admin" and password == "Majestic2026": # Replace with your secure logic
+        st.session_state["logged_in"] = True
+        st.session_state["is_admin"] = True
+        st.success("Welcome, AllRounder. Redirecting...")
+        st.switch_page("pages/3_Master_Log.py")
     else:
-        pg = st.navigation([master_log])
-
-    # Sidebar profile and logout
-    with st.sidebar:
-        st.markdown(f"👤 **User:** {st.session_state['username'].title()}")
-        st.markdown(f"🛡️ **Role:** {'Administrator' if st.session_state['is_admin'] else 'Staff Operations'}")
-        st.write("---")
-        if st.button("Log Out", use_container_width=True):
-            st.session_state.clear()
-            st.rerun()
-
-    # Execute the allowed navigation
-    pg.run()
+        st.error("Invalid credentials.")
+        
+st.markdown("</div>", unsafe_allow_html=True)
