@@ -1,15 +1,14 @@
 import streamlit as st
 
-# SECURITY: If NOT logged in, just stop the app.
-if not st.session_state.get("logged_in", False):
-    st.error("Please log in first.")
-    st.stop() 
+# --- PERSISTENCE CHECK ---
+if st.query_params.get("logged_in") != "true":
+    st.switch_page("app.py")
 
-# ADMIN CHECK
-if st.session_state.get("role") != "admin":
+if st.query_params.get("role") != "admin":
     st.error("🚨 Restricted Area")
     st.stop()
 
+# --- YOUR EXISTING TRACKER CODE ---
 st.title("📦 Master Tracker")
 import streamlit.components.v1 as components
 import pandas as pd
