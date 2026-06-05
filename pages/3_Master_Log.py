@@ -13,8 +13,9 @@ from googleapiclient.http import MediaFileUpload
 # --- CONFIG & AUTH ---
 st.set_page_config(page_title="Master Log", layout="wide")
 
-# --- WATERMARK CSS ---
-# Replace 'YOUR_BASE64_STRING_HERE' with your actual generated base64 watermark string
+# --- WATERMARK CSS (FIXED FOR FULL VISIBILITY) ---
+# The opacity rule was removed so your app stays at 100% brightness.
+# When you are ready, just replace 'YOUR_BASE64_STRING_HERE' with your faded image code.
 st.markdown("""
     <style>
     [data-testid="stAppViewContainer"] {
@@ -23,7 +24,6 @@ st.markdown("""
         background-position: center;
         background-size: 400px;
         background-attachment: fixed;
-        opacity: 0.08;
     }
     </style>
     """, unsafe_allow_html=True)
