@@ -588,40 +588,39 @@ if "logged_in" not in st.session_state:
 # If not authenticated, show the beautiful login form
 if not st.session_state["logged_in"]:
     
-    st.markdown("<div class='login-wrapper'>", unsafe_allow_html=True)
+    # Create 3 columns: Left spacer, Center column (where the login goes), Right spacer
+    # The [1, 1.2, 1] ratio makes the middle column perfectly sized for a login box
+    left_spacer, center_col, right_spacer = st.columns([1, 1.2, 1])
     
-    # 1. Load the Logo
-    logo_b64 = get_img_b64(COMPANY_LOGO_PATH)
-    if logo_b64:
-        # max-height controls the size. 90px is usually the sweet spot for an elegant login logo.
-        st.markdown(f'<img src="{logo_b64}" style="max-height: 90px; margin-bottom: 10px;">', unsafe_allow_html=True)
-    else:
-        st.markdown("<h2 style='color: #1e293b; margin-bottom: 0px;'>🚢 Majestic Freight</h2>", unsafe_allow_html=True)
-    
-    st.markdown("<p style='color: #64748b; margin-bottom: 25px;'>Secure Gatekeeper Authorization</p>", unsafe_allow_html=True)
-    
-    # 2. Render the styled form
-    with st.form("login"):
-        username = st.text_input("Username").strip().lower()
-        password = st.text_input("Password", type="password")
-        if st.form_submit_button("Access System"):
-            users = st.secrets.get("users", {})
-            if username in users and users[username].get("password") == password:
-                # Set Session State
-                role = users[username].get("role")
-                st.session_state["logged_in"] = True
-                st.session_state["role"] = role
-                
-                # Set URL Parameters for Mobile "Background Tab" Persistence
-                st.query_params["auth"] = "yes"
-                st.query_params["role"] = role
-                
-                st.rerun()
-            else:
-                st.error("Invalid credentials.")
-                
-    st.markdown("</div>", unsafe_allow_html=True)
-
+    with center_col:
+        # 1. Load the Logo (Force centered via inline CSS)
+        logo_b64 = get_img_b64(COMPANY_LOGO_PATH)
+        if logo_b64:
+            st.markdown(f'<div style="text-align: center;"><img src="{logo_b64}" style="max-height: 90px; margin-bottom: 10px;"></div>', unsafe_allow_html=True)
+        else:
+            st.markdown("<h2 style='text-align: center; color: #1e293b; margin-bottom: 0px;'>🚢 Majestic Freight</h2>", unsafe_allow_html=True)
+        
+        st.markdown("<p style='text-align: center; color: #64748b; margin-bottom: 25px;'>Secure Gatekeeper Authorization</p>", unsafe_allow_html=True)
+        
+        # 2. Render the styled form
+        with st.form("login"):
+            username = st.text_input("Username").strip().lower()
+            password = st.text_input("Password", type="password")
+            if st.form_submit_button("Access System"):
+                users = st.secrets.get("users", {})
+                if username in users and users[username].get("password") == password:
+                    # Set Session State
+                    role = users[username].get("role")
+                    st.session_state["logged_in"] = True
+                    st.session_state["role"] = role
+                    
+                    # Set URL Parameters for Mobile "Background Tab" Persistence
+                    st.query_params["auth"] = "yes"
+                    st.query_params["role"] = role
+                    
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials.")
 else:
     # --- The user is Authenticated ---
     is_admin = (st.session_state.get("role") == "admin")
