@@ -12,10 +12,25 @@ from googleapiclient.http import MediaFileUpload
 
 # --- CONFIG & AUTH ---
 st.set_page_config(page_title="Master Log", layout="wide")
+
+# --- WATERMARK CSS ---
+# Replace 'YOUR_BASE64_STRING_HERE' with your actual generated base64 watermark string
+st.markdown("""
+    <style>
+    [data-testid="stAppViewContainer"] {
+        background-image: url('data:image/png;base64,YOUR_BASE64_STRING_HERE');
+        background-repeat: no-repeat;
+        background-position: center;
+        background-size: 400px;
+        background-attachment: fixed;
+        opacity: 0.08;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1ipB1DaIdX_BS_0iSWRHMwHcP-wEpfu2pZzFT3nJtlho/edit?gid=0#gid=0"
 ROOT_FOLDER_ID = "19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"
 
-# Expanded Logistics Country List
 ALL_COUNTRIES = [
     "", "USA", "China", "UK", "Canada", "Brazil", "Mexico", "Japan", "Germany", 
     "India", "France", "Italy", "South Korea", "Spain", "Australia", "Taiwan", 
@@ -104,8 +119,12 @@ else:
     ALL_DOCS = SYSTEM_DOCS + EXTERNAL_DOCS
 
     for idx, row in df.iterrows():
+        # --- SAFE DATA EXTRACTION ---
         inv_no = str(row.get('Invoice No', 'N/A'))
-        client_name = str(row.get('Client Name', 'Unknown Client'))
+        client_name = str(row.get('Client Name', 'N/A'))
+        country_origin = str(row.get('Country of Origin', 'N/A'))
+        total_cartons = str(row.get('Total Cartons', 'N/A'))
+        lodged_val = str(row.get('Lodged Status', 'No'))
         ship_status = str(row.get("Shipment Status", "Active"))
         
         raw_eta = row.get("ETA")
@@ -117,8 +136,9 @@ else:
         naldo_val = str(row.get("NALDO", "No")).strip().upper()
         naldo_display = f"🔴 NALDO: YES" if naldo_val == "YES" else f"⚪ NALDO: NO"
         
-        header_text = (f"📦 CTN: {inv_no} | {status_label} | ETA: {current_date} | "
-                       f"Cont: {row.get('Container #', 'N/A')} | Lgd: {row.get('Lodged Status', 'N/A')} | {naldo_display}")
+        # --- NEW HEADER STRUCTURE ---
+        header_text = (f"📦 CTN: {total_cartons} | {status_label} | ETA: {current_date} | "
+                       f"{client_name} | {country_origin} | Lgd: {lodged_val} | {naldo_display} | {inv_no}")
 
         with st.expander(header_text):
             
@@ -128,17 +148,17 @@ else:
             if is_admin:
                 # Admin: Editable Fields
                 with col1: new_cont = st.text_input("Container #", value=str(row.get("Container #", "")), key=f"cont_{idx}")
-                with col2: new_orig = st.selectbox("Country of Origin", ALL_COUNTRIES, index=ALL_COUNTRIES.index(row.get("Country of Origin", "")) if row.get("Country of Origin", "") in ALL_COUNTRIES else 0, key=f"orig_{idx}")
+                with col2: new_orig = st.selectbox("Country of Origin", ALL_COUNTRIES, index=ALL_COUNTRIES.index(country_origin) if country_origin in ALL_COUNTRIES else 0, key=f"orig_{idx}")
                 with col3: new_eta = st.date_input("ETA", value=current_date, key=f"eta_{idx}")
-                with col4: new_lodg = st.radio("Lodged", ["Yes", "No"], index=0 if row.get("Lodged Status") == "Yes" else 1, horizontal=True, key=f"lodged_{idx}")
+                with col4: new_lodg = st.radio("Lodged", ["Yes", "No"], index=0 if lodged_val == "Yes" else 1, horizontal=True, key=f"lodged_{idx}")
                 with col5: new_stat = st.selectbox("Shipment Status", ["Active", "Delivered"], index=0 if ship_status != "Delivered" else 1, key=f"stat_{idx}")
                 with col6: new_naldo = st.radio("NALDO Code", ["Yes", "No"], index=0 if naldo_val == "YES" else 1, horizontal=True, key=f"naldo_{idx}")
             else:
                 # Staff: Read-Only Text
                 with col1: st.markdown(f"**Container #:**<br>{row.get('Container #', 'N/A')}", unsafe_allow_html=True)
-                with col2: st.markdown(f"**Origin:**<br>{row.get('Country of Origin', 'N/A')}", unsafe_allow_html=True)
+                with col2: st.markdown(f"**Origin:**<br>{country_origin}", unsafe_allow_html=True)
                 with col3: st.markdown(f"**ETA:**<br>{current_date}", unsafe_allow_html=True)
-                with col4: st.markdown(f"**Lodged:**<br>{row.get('Lodged Status', 'No')}", unsafe_allow_html=True)
+                with col4: st.markdown(f"**Lodged:**<br>{lodged_val}", unsafe_allow_html=True)
                 with col5: st.markdown(f"**Status:**<br>{ship_status}", unsafe_allow_html=True)
                 with col6: st.markdown(f"**NALDO Code:**<br>{'Yes' if naldo_val == 'YES' else 'No'}", unsafe_allow_html=True)
             
@@ -155,15 +175,14 @@ else:
                     file_link = str(row.get(slot, ""))
                     
                     if file_link.startswith("http"):
-                        # --- THE NUCLEAR BYPASS ---
-                        # Extracts the hidden ID from the URL and forces a raw OS download
-                        clean_link = file_link
+                        # --- THE UNIVERSAL VIEW BYPASS ---
                         match = re.search(r'/d/([a-zA-Z0-9_-]+)', file_link)
                         if match:
                             file_id = match.group(1)
-                            clean_link = f"https://drive.google.com/uc?export=download&id={file_id}"
-                        
-                        st.link_button("📄 View Document", url=clean_link, key=f"view_{idx}_{i}", width="stretch")
+                            direct_link = f"https://drive.google.com/uc?export=view&id={file_id}"
+                            st.link_button("📄 View Document", url=direct_link, key=f"view_{idx}_{i}", width="stretch")
+                        else:
+                            st.link_button("📄 View Document", url=file_link, key=f"view_{idx}_{i}", width="stretch")
                     else:
                         st.button("Pending Upload", disabled=True, key=f"pend_{idx}_{i}", width="stretch")
                     
