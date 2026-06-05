@@ -591,8 +591,10 @@ if not st.session_state["logged_in"]:
     st.markdown("<div class='login-wrapper'>", unsafe_allow_html=True)
     
     # 1. Load the Logo
-    if os.path.exists(COMPANY_LOGO_PATH):
-        st.image(COMPANY_LOGO_PATH, use_container_width=True)
+    logo_b64 = get_img_b64(COMPANY_LOGO_PATH)
+    if logo_b64:
+        # max-height controls the size. 90px is usually the sweet spot for an elegant login logo.
+        st.markdown(f'<img src="{logo_b64}" style="max-height: 90px; margin-bottom: 10px;">', unsafe_allow_html=True)
     else:
         st.markdown("<h2 style='color: #1e293b; margin-bottom: 0px;'>🚢 Majestic Freight</h2>", unsafe_allow_html=True)
     
