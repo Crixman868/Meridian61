@@ -1,11 +1,17 @@
 import streamlit as st
 
-# SECURITY BLOCK
-if not st.session_state.get("logged_in", False):
+# Check login via URL param
+if st.query_params.get("auth") != "yes":
     st.error("Please log in via the main page.")
-    st.stop() # This prevents the crash
+    st.stop()
 
-# --- MASTER LOG CODE ---
+# Logout resets the URL
+if st.sidebar.button("Logout"):
+    st.query_params.clear()
+    st.session_state["logged_in"] = False
+    st.rerun()
+
+# --- YOUR MASTER LOG CODE HERE ---
 st.title("📋 Master Log")
 import pandas as pd
 import gspread

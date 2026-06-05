@@ -1,15 +1,15 @@
 import streamlit as st
 
-# SECURITY BLOCK
-if not st.session_state.get("logged_in", False):
+# Check login via URL param or Session
+if st.query_params.get("auth") != "yes":
     st.error("Please log in via the main page.")
-    st.stop() # This prevents the crash
+    st.stop()
 
-if st.session_state.get("role") != "admin":
+if st.query_params.get("role") != "admin":
     st.error("🚨 Restricted Area")
     st.stop()
 
-# --- TRACKER CODE ---
+# --- YOUR TRACKER CODE HERE ---
 st.title("📦 Master Tracker")
 import streamlit.components.v1 as components
 import pandas as pd
