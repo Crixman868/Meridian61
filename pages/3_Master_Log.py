@@ -42,6 +42,15 @@ st.markdown("""
         color: #1e293b !important;
         font-size: 1.05rem !important;
     }
+
+    /* --- THE INVISIBLE TEXT FIX FOR MOBILE --- */
+    /* Forces all text inside the expanders to be dark, ignoring mobile dark mode */
+    [data-testid="stExpander"] p, 
+    [data-testid="stExpander"] h3, 
+    [data-testid="stExpander"] h4, 
+    [data-testid="stExpander"] h5 {
+        color: #1e293b !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
