@@ -1,15 +1,15 @@
 import streamlit as st
 
-# SECURITY BLOCK: Stop execution if not logged in
+# SECURITY: If NOT logged in, just stop the app.
 if not st.session_state.get("logged_in", False):
     st.error("Please log in first.")
-    st.stop() # Stops the app here, prevents crash
+    st.stop() 
 
+# ADMIN CHECK
 if st.session_state.get("role") != "admin":
     st.error("🚨 Restricted Area")
     st.stop()
 
-# --- TRACKER APP CODE ---
 st.title("📦 Master Tracker")
 import streamlit.components.v1 as components
 import pandas as pd
