@@ -1,8 +1,7 @@
 import streamlit as st
-import pages.tracker_app as tracker_app
-import pages.master_log as master_log
+from pages import tracker_app, master_log
 
-# Initialize Session State
+# Initialize State
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
@@ -23,7 +22,7 @@ if not st.session_state["logged_in"]:
         else:
             st.error("Invalid credentials.")
 else:
-    # Route to the correct app
+    # Router: Direct calls, no page switching!
     if st.session_state.get("role") == "admin":
         tracker_app.main()
     else:
