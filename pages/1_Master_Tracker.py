@@ -1,4 +1,14 @@
 import streamlit as st
+
+# --- STRICT ADMIN SECURITY BLOCK ---
+# 1. Catch anyone who bypassed the login page entirely
+if not st.session_state.get("logged_in", False):
+    st.switch_page("0_Gatekeeper.py")
+
+# 2. Catch logged-in staff (Elton/Smallman) trying to enter an Admin area
+if not st.session_state.get("is_admin", False):
+    st.error("🚨 RESTRICTED AREA: Administrator clearance required.")
+    st.stop() # This instantly halts the script so no sensitive data loads
 import streamlit.components.v1 as components
 import pandas as pd
 import os
@@ -41,27 +51,23 @@ def upload_system_pdf_to_drive(html_content, file_name, client_name, invoice_no)
     try:
         drive = get_drive_service()
         
-        # 1. Folder Routing
         folders = drive.files().list(q=f"name='{client_name}' and '{ROOT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
         client_folder_id = folders[0]['id'] if folders else drive.files().create(body={"name": client_name, "parents": [ROOT_FOLDER_ID], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
         
         inv_folders = drive.files().list(q=f"name='{invoice_no}' and '{client_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
         inv_folder_id = inv_folders[0]['id'] if inv_folders else drive.files().create(body={"name": invoice_no, "parents": [client_folder_id], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
         
-        # 2. WEASYPRINT NATIVE CONVERSION (The Exact Replica)
+        # WEASYPRINT NATIVE CONVERSION (The Exact Replica)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_pdf:
             temp_pdf_path = temp_pdf.name
             
         HTML(string=html_content).write_pdf(temp_pdf_path)
         
-        # 3. Upload the perfect PDF directly to the Vault
         pdf_metadata = {'name': file_name, 'parents': [inv_folder_id]}
         pdf_media = MediaFileUpload(temp_pdf_path, mimetype='application/pdf', resumable=True)
         final_pdf = drive.files().create(body=pdf_metadata, media_body=pdf_media, fields='id, webViewLink').execute()
         
-        # 4. Clean up
         os.remove(temp_pdf_path)
-        
         return final_pdf.get('webViewLink', 'Upload Failed')
     except Exception as e:
         st.error(f"PDF Engine Error for {file_name}: {e}")
@@ -311,7 +317,6 @@ with col2:
 
                         df_all = load_log_data()
                         
-                        # NEW: Include Shipment Status
                         new_row = {
                             "Invoice No": str(invoice_num), 
                             "Client Name": str(client_name),
