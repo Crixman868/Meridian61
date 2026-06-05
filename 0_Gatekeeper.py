@@ -5,7 +5,6 @@ import time
 st.set_page_config(page_title="Meridian Gatekeeper", page_icon="🔐")
 
 # --- THE COOKIE ENGINE ---
-# Initialized directly to comply with Streamlit's updated widget rules
 cookie_manager = stx.CookieManager()
 
 # Give the browser a split-second to send the cookies to the server
@@ -36,18 +35,23 @@ if submit:
     valid_login = False
     is_admin = False
     
-    # --- PASSWORD VERIFICATION ---
-    # This assumes your Streamlit Secrets has a [passwords] section
+    # --- DYNAMIC PASSWORDS MATCH ENGINE ---
     try:
-        secrets = st.secrets["passwords"]
-        if username in secrets and secrets[username] == password:
-            valid_login = True
+        # Access the root user data block from secrets
+        users_secrets = st.secrets["users"]
+        
+        # Check if the entered username exists in your specific structure
+        if username in users_secrets:
+            user_data = users_secrets[username]
             
-            # Identify if the user is an Admin (like 'allrounder' or 'admin')
-            if username in ["admin", "allrounder", "crixman"]: 
-                is_admin = True
-    except KeyError:
-        st.error("System Error: [passwords] block missing from Streamlit Secrets.")
+            # Verify the password directly matching your format
+            if user_data.get("password") == password:
+                valid_login = True
+                # Match role directly from your secrets ('admin' vs 'staff')
+                if user_data.get("role") == "admin":
+                    is_admin = True
+    except Exception as err:
+        st.error("System Error: Your [users] secrets block format is missing or misconfigured.")
         st.stop()
         
     if valid_login:
@@ -57,7 +61,7 @@ if submit:
         cookie_manager.set("meridian_auth", "approved", max_age=2592000)
         cookie_manager.set("meridian_role", "admin" if is_admin else "staff", max_age=2592000)
         
-        # Set short-term memory as a backup
+        # Set short-term memory session state as a backup layer
         st.session_state["logged_in"] = True
         st.session_state["is_admin"] = is_admin
         
