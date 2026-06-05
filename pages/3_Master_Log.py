@@ -15,6 +15,15 @@ st.set_page_config(page_title="Master Log", layout="wide")
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1ipB1DaIdX_BS_0iSWRHMwHcP-wEpfu2pZzFT3nJtlho/edit?gid=0#gid=0"
 ROOT_FOLDER_ID = "19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"
 
+# --- SECURITY BOUNCER ---
+# 1. Ensure user is logged in
+if "logged_in" not in st.session_state or st.session_state["logged_in"] == False:
+    st.error("🚨 Access Denied. Please log in through the Secure Gatekeeper.")
+    st.stop()
+
+# 2. Identify role
+is_admin = st.session_state.get("is_admin", False)
+
 # Expanded Logistics Country List
 ALL_COUNTRIES = [
     "", "USA", "China", "UK", "Canada", "Brazil", "Mexico", "Japan", "Germany", 
@@ -23,10 +32,6 @@ ALL_COUNTRIES = [
     "Saudi Arabia", "Switzerland", "Sweden", "Poland", "Belgium", "Thailand", 
     "Indonesia", "Turkey", "Philippines", "Ireland", "Other"
 ]
-
-if "logged_in" not in st.session_state or st.session_state["logged_in"] == False:
-    st.error("🚨 Access Denied. Please log in through the Secure Gatekeeper.")
-    st.stop()
 
 def get_creds():
     token_dict = json.loads(st.secrets["google_drive_human"]["token"])
@@ -92,8 +97,6 @@ def get_eta_status(eta_date, shipment_status):
 # --- UI & LOGIC ---
 st.title("🗄️ Master Log: Logistics Control Tower")
 
-is_admin = st.session_state.get("is_admin", False) 
-
 df = load_log_data()
 
 if df.empty:
@@ -113,7 +116,6 @@ else:
         current_date = timestamp.date() if not pd.isna(timestamp) else datetime.now().date()
         status_label, _ = get_eta_status(current_date, ship_status)
         
-        # NALDO Visual Formatting
         naldo_val = str(row.get("NALDO", "No")).strip().upper()
         naldo_display = f"🔴 NALDO: YES" if naldo_val == "YES" else f"⚪ NALDO: NO"
         
@@ -121,12 +123,9 @@ else:
                        f"Cont: {row.get('Container #', 'N/A')} | Lgd: {row.get('Lodged Status', 'N/A')} | {naldo_display}")
 
         with st.expander(header_text):
-            
-            # --- METADATA SECTION ---
             col1, col2, col3, col4, col5, col6 = st.columns(6)
             
             if is_admin:
-                # Admin: Editable Fields
                 with col1: new_cont = st.text_input("Container #", value=str(row.get("Container #", "")), key=f"cont_{idx}")
                 with col2: new_orig = st.selectbox("Country of Origin", ALL_COUNTRIES, index=ALL_COUNTRIES.index(row.get("Country of Origin", "")) if row.get("Country of Origin", "") in ALL_COUNTRIES else 0, key=f"orig_{idx}")
                 with col3: new_eta = st.date_input("ETA", value=current_date, key=f"eta_{idx}")
@@ -134,7 +133,6 @@ else:
                 with col5: new_stat = st.selectbox("Shipment Status", ["Active", "Delivered"], index=0 if ship_status != "Delivered" else 1, key=f"stat_{idx}")
                 with col6: new_naldo = st.radio("NALDO Code", ["Yes", "No"], index=0 if naldo_val == "YES" else 1, horizontal=True, key=f"naldo_{idx}")
             else:
-                # Staff: Read-Only Text
                 with col1: st.markdown(f"**Container #:**<br>{row.get('Container #', 'N/A')}", unsafe_allow_html=True)
                 with col2: st.markdown(f"**Origin:**<br>{row.get('Country of Origin', 'N/A')}", unsafe_allow_html=True)
                 with col3: st.markdown(f"**ETA:**<br>{current_date}", unsafe_allow_html=True)
@@ -145,7 +143,6 @@ else:
             st.write("---")
             st.subheader("Document Vault (10-Slot Matrix)")
             
-            # --- DOCUMENT VAULT SECTION ---
             grid = st.columns(5)
             upload_cache = {} 
 
@@ -155,43 +152,35 @@ else:
                     file_link = str(row.get(slot, ""))
                     
                     if file_link.startswith("http"):
-                        # --- THE NUCLEAR BYPASS ---
-                        # Extracts the hidden ID from the URL and forces a raw OS download
                         clean_link = file_link
                         match = re.search(r'/d/([a-zA-Z0-9_-]+)', file_link)
                         if match:
                             file_id = match.group(1)
                             clean_link = f"https://drive.google.com/uc?export=download&id={file_id}"
-                        
-                        st.link_button("📄 View Document", url=clean_link, key=f"view_{idx}_{i}", width="stretch")
+                        st.link_button("📄 View Document", url=clean_link, key=f"view_{idx}_{i}")
                     else:
-                        st.button("Pending Upload", disabled=True, key=f"pend_{idx}_{i}", width="stretch")
+                        st.button("Pending Upload", disabled=True, key=f"pend_{idx}_{i}")
                     
                     if is_admin and slot in EXTERNAL_DOCS:
                         uploaded_file = st.file_uploader(f"Upload {slot}", key=f"up_{idx}_{i}", label_visibility="collapsed")
                         if uploaded_file:
                             upload_cache[slot] = uploaded_file
             
-            # --- ADMIN SAVE LOGIC ---
             if is_admin:
                 if st.button("💾 Save Shipment Updates", key=f"save_{idx}", type="primary"):
-                    with st.spinner("Processing updates and uploading files..."):
+                    with st.spinner("Processing updates..."):
                         df_update = load_log_data()
                         row_index = df_update.index[df_update['Invoice No'].astype(str) == inv_no].tolist()[0]
-                        
                         df_update.at[row_index, "Container #"] = new_cont
                         df_update.at[row_index, "Country of Origin"] = new_orig
                         df_update.at[row_index, "ETA"] = str(new_eta)
                         df_update.at[row_index, "Lodged Status"] = new_lodg
                         df_update.at[row_index, "Shipment Status"] = new_stat
                         df_update.at[row_index, "NALDO"] = new_naldo
-
                         for slot_name, up_file in upload_cache.items():
                             doc_filename = f"{inv_no}_{slot_name.replace(' ', '_')}.pdf"
                             new_link = upload_physical_file_to_drive(up_file, doc_filename, client_name, inv_no)
-                            if new_link:
-                                df_update.at[row_index, slot_name] = new_link
-                        
+                            if new_link: df_update.at[row_index, slot_name] = new_link
                         if save_log_data(df_update):
-                            st.success("✅ Updates saved! Links and data synced to Master Log.")
+                            st.success("✅ Updates saved!")
                             st.rerun()
