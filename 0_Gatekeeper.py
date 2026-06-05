@@ -5,11 +5,8 @@ import time
 st.set_page_config(page_title="Meridian Gatekeeper", page_icon="🔐")
 
 # --- THE COOKIE ENGINE ---
-@st.cache_resource
-def get_cookie_manager():
-    return stx.CookieManager()
-    
-cookie_manager = get_cookie_manager()
+# Initialized directly to comply with Streamlit's updated widget rules
+cookie_manager = stx.CookieManager()
 
 # Give the browser a split-second to send the cookies to the server
 time.sleep(0.1)
@@ -47,7 +44,6 @@ if submit:
             valid_login = True
             
             # Identify if the user is an Admin (like 'allrounder' or 'admin')
-            # Add any other admin usernames to this list if needed
             if username in ["admin", "allrounder", "crixman"]: 
                 is_admin = True
     except KeyError:
