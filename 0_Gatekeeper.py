@@ -1,6 +1,7 @@
 import streamlit as st
 import extra_streamlit_components as stx
 import time
+import json
 
 st.set_page_config(page_title="Meridian Gatekeeper", page_icon="🔐")
 
@@ -8,19 +9,24 @@ st.set_page_config(page_title="Meridian Gatekeeper", page_icon="🔐")
 cookie_manager = stx.CookieManager()
 
 # Give the browser a split-second to send the cookies to the server
-time.sleep(0.1)
+time.sleep(0.2)
 
-# Check for existing 30-day session cookies
-cached_auth = cookie_manager.get(cookie="meridian_auth")
-cached_role = cookie_manager.get(cookie="meridian_role")
+# Check for our unified 30-day session cookie
+cached_session = cookie_manager.get(cookie="meridian_session")
 
-if cached_auth == "approved":
-    st.session_state["logged_in"] = True
-    st.session_state["is_admin"] = (cached_role == "admin")
-    st.success("Secure Session Restored! Redirecting...")
-    time.sleep(0.5)
-    st.switch_page("pages/1_Master_Tracker.py")
-    st.stop()
+if cached_session:
+    try:
+        # Parse our combined cookie data safely
+        session_data = json.loads(cached_session) if isinstance(cached_session, str) else cached_session
+        if session_data.get("auth") == "approved":
+            st.session_state["logged_in"] = True
+            st.session_state["is_admin"] = (session_data.get("role") == "admin")
+            st.success("Secure Session Restored! Redirecting...")
+            time.sleep(0.5)
+            st.switch_page("pages/1_Master_Tracker.py")
+            st.stop()
+    except Exception:
+        pass # If cookie data is corrupted, just let them log in normally
 
 # --- LOGIN UI ---
 st.title("🔐 Meridian Logistics Gatekeeper")
@@ -51,11 +57,20 @@ if submit:
         st.stop()
         
     if valid_login:
-        st.success("Authentication accepted. Baking 30-Day security cookies...")
+        st.success("Authentication accepted. Baking 30-Day security session vault...")
         
-        # FIX: Added unique custom element keys manually to prevent inner component naming collisions
-        cookie_manager.set("meridian_auth", "approved", max_age=2592000, key="set_cookie_auth")
-        cookie_manager.set("meridian_role", "admin" if is_admin else "staff", max_age=2592000, key="set_cookie_role")
+        # FIX: Combine all info into a single package so we only execute .set() exactly once!
+        session_payload = {
+            "auth": "approved",
+            "role": "admin" if is_admin else "staff"
+        }
+        
+        # Serialize payload to string format for cookie storage
+        cookie_manager.set(
+            cookie="meridian_session", 
+            val=json.dumps(session_payload), 
+            max_age=2592000
+        )
         
         # Set short-term memory session state as a backup layer
         st.session_state["logged_in"] = True
