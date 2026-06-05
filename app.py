@@ -596,7 +596,7 @@ if not st.session_state["logged_in"]:
         # 1. Load the Logo (Force centered via inline CSS)
         logo_b64 = get_img_b64(COMPANY_LOGO_PATH)
         if logo_b64:
-            st.markdown(f'<div style="text-align: center;"><img src="{logo_b64}" style="max-height: 120px; margin-bottom: 10px;"></div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="text-align: center;"><img src="{logo_b64}" style="max-height: 160px; margin-bottom: 10px;"></div>', unsafe_allow_html=True)
         else:
             st.markdown("<h2 style='text-align: center; color: #1e293b; margin-bottom: 0px;'>🚢 Majestic Freight</h2>", unsafe_allow_html=True)
         
