@@ -13,6 +13,38 @@ from googleapiclient.http import MediaFileUpload
 
 # --- CONFIG & AUTH ---
 st.set_page_config(page_title="Master Log", layout="wide")
+
+# --- UI AESTHETICS: PREDOMINANTLY WHITE & GEOMETRIC ---
+st.markdown("""
+<style>
+    /* White background with subtle geometric shading */
+    .stApp {
+        background-color: #ffffff;
+        background-image: 
+            linear-gradient(45deg, #f8f9fa 25%, transparent 25%, transparent 75%, #f8f9fa 75%, #f8f9fa), 
+            linear-gradient(45deg, #f8f9fa 25%, transparent 25%, transparent 75%, #f8f9fa 75%, #f8f9fa);
+        background-size: 20px 20px;
+        background-position: 0 0, 10px 10px;
+    }
+    
+    /* Clean, crisp expander modules */
+    [data-testid="stExpander"] {
+        background-color: #ffffff !important;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.04);
+        margin-bottom: 10px;
+    }
+    
+    /* Emphasizing the Header Text for the Shopfloor */
+    [data-testid="stExpander"] summary p {
+        font-weight: 600 !important;
+        color: #1e293b !important;
+        font-size: 1.05rem !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1ipB1DaIdX_BS_0iSWRHMwHcP-wEpfu2pZzFT3nJtlho/edit?gid=0#gid=0"
 ROOT_FOLDER_ID = "19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"
 
@@ -34,10 +66,9 @@ ALL_COUNTRIES = [
     "Indonesia", "Turkey", "Philippines", "Ireland", "Other"
 ]
 
-# --- THE HYBRID AUTHENTICATION SYSTEM ---
-
+# --- HYBRID AUTHENTICATION ---
 def get_gspread_client():
-    # 🤖 BOT CONNECTION (NEVER EXPIRES) - Used only for reading/writing data
+    # 🤖 BOT CONNECTION (NEVER EXPIRES) - Used for Sheets
     creds_dict = json.loads(st.secrets["google_api"]["credentials"])
     creds = BotCredentials.from_service_account_info(
         creds_dict, 
@@ -46,12 +77,10 @@ def get_gspread_client():
     return gspread.authorize(creds)
 
 def get_drive_service():
-    # 👤 HUMAN CONNECTION (REQUIRES REFRESH) - Used only for uploading PDFs
+    # 👤 HUMAN CONNECTION (REQUIRES REFRESH) - Used for Drive Uploads
     token_dict = json.loads(st.secrets["google_drive_human"]["token"])
     creds = HumanCredentials.from_authorized_user_info(token_dict)
     return build('drive', 'v3', credentials=creds)
-
-# ----------------------------------------
 
 def upload_physical_file_to_drive(uploaded_file, file_name, client_name, invoice_no):
     if not uploaded_file: return None
@@ -79,8 +108,7 @@ def upload_physical_file_to_drive(uploaded_file, file_name, client_name, invoice
         return None
 
 def load_log_data():
-    try: 
-        return pd.DataFrame(get_gspread_client().open_by_url(SHEET_URL).sheet1.get_all_records())
+    try: return pd.DataFrame(get_gspread_client().open_by_url(SHEET_URL).sheet1.get_all_records())
     except Exception as e: 
         st.error(f"Failed to load data: {e}")
         return pd.DataFrame()
@@ -98,7 +126,6 @@ def save_log_data(df):
 def get_eta_status(eta_date, shipment_status):
     if shipment_status == "Delivered":
         return "✅ DELIVERED", "#00b050"
-        
     try:
         days_diff = (eta_date - datetime.now().date()).days
         if days_diff < 0: return "⚠️ Overdue", "#FF4500"
@@ -124,6 +151,9 @@ else:
         client_name = str(row.get('Client Name', 'Unknown Client'))
         ship_status = str(row.get("Shipment Status", "Active"))
         
+        # Pulling the newly mapped Total Cartons metric safely
+        total_cartons = str(row.get("Total Cartons", "N/A"))
+        
         raw_eta = row.get("ETA")
         timestamp = pd.to_datetime(raw_eta, errors='coerce')
         current_date = timestamp.date() if not pd.isna(timestamp) else datetime.now().date()
@@ -132,8 +162,11 @@ else:
         naldo_val = str(row.get("NALDO", "No")).strip().upper()
         naldo_display = f"🔴 NALDO: YES" if naldo_val == "YES" else f"⚪ NALDO: NO"
         
-        header_text = (f"📦 CTN: {inv_no} | {status_label} | ETA: {current_date} | "
-                       f"Cont: {row.get('Container #', 'N/A')} | Lgd: {row.get('Lodged Status', 'N/A')} | {naldo_display}")
+        # --- SHOPFLOOR HEADER LAYOUT ---
+        # Order: Cartons -> Status -> ETA -> Client -> Origin -> Lodged -> NALDO -> Invoice
+        header_text = (f"📦 TOTAL CTNS: {total_cartons} | {status_label} | ETA: {current_date} | "
+                       f"Client: {client_name} | Origin: {row.get('Country of Origin', 'N/A')} | "
+                       f"Lodged: {row.get('Lodged Status', 'N/A')} | {naldo_display} | INV: {inv_no}")
 
         with st.expander(header_text):
             col1, col2, col3, col4, col5, col6 = st.columns(6)
@@ -170,9 +203,9 @@ else:
                         if match:
                             file_id = match.group(1)
                             clean_link = f"https://drive.google.com/uc?export=download&id={file_id}"
-                        st.link_button("📄 View Document", url=clean_link, key=f"view_{idx}_{i}", width="stretch")
+                        st.link_button("📄 View Document", url=clean_link, key=f"view_{idx}_{i}", use_container_width=True)
                     else:
-                        st.button("Pending Upload", disabled=True, key=f"pend_{idx}_{i}", width="stretch")
+                        st.button("Pending Upload", disabled=True, key=f"pend_{idx}_{i}", use_container_width=True)
                     
                     if is_admin and slot in EXTERNAL_DOCS:
                         uploaded_file = st.file_uploader(f"Upload {slot}", key=f"up_{idx}_{i}", label_visibility="collapsed")
