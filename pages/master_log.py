@@ -1,4 +1,16 @@
 import streamlit as st
+
+# Security Block
+if not st.session_state.get("logged_in", False):
+    st.switch_page("app.py")
+
+# Add a logout button specifically for the shopfloor
+if st.sidebar.button("Logout"):
+    st.session_state["logged_in"] = False
+    st.switch_page("app.py")
+
+# --- YOUR MASTER LOG CODE STARTS HERE ---
+st.title("📋 Master Log")
 import pandas as pd
 import gspread
 import json
