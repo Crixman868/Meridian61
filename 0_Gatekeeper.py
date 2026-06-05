@@ -37,17 +37,13 @@ if submit:
     
     # --- DYNAMIC PASSWORDS MATCH ENGINE ---
     try:
-        # Access the root user data block from secrets
         users_secrets = st.secrets["users"]
         
-        # Check if the entered username exists in your specific structure
         if username in users_secrets:
             user_data = users_secrets[username]
             
-            # Verify the password directly matching your format
             if user_data.get("password") == password:
                 valid_login = True
-                # Match role directly from your secrets ('admin' vs 'staff')
                 if user_data.get("role") == "admin":
                     is_admin = True
     except Exception as err:
@@ -57,9 +53,9 @@ if submit:
     if valid_login:
         st.success("Authentication accepted. Baking 30-Day security cookies...")
         
-        # SET COOKIES (2,592,000 seconds = 30 Days)
-        cookie_manager.set("meridian_auth", "approved", max_age=2592000)
-        cookie_manager.set("meridian_role", "admin" if is_admin else "staff", max_age=2592000)
+        # FIX: Added unique custom element keys manually to prevent inner component naming collisions
+        cookie_manager.set("meridian_auth", "approved", max_age=2592000, key="set_cookie_auth")
+        cookie_manager.set("meridian_role", "admin" if is_admin else "staff", max_age=2592000, key="set_cookie_role")
         
         # Set short-term memory session state as a backup layer
         st.session_state["logged_in"] = True
