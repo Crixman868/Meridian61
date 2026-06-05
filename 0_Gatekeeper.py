@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import time
 import json
 
@@ -12,7 +11,7 @@ if "is_admin" not in st.session_state:
     st.session_state["is_admin"] = False
 
 # --- NATIVE JAVASCRIPT COOKIE MANAGEMENT ---
-# Hidden HTML channel used to pull/push long-term browser data without Python widget crashes
+# Using st.iframe to fulfill the latest framework requirements
 cookie_js = """
 <script>
     function getCookie(name) {
@@ -21,7 +20,7 @@ cookie_js = """
         return null;
     }
     
-    // Periodically post cookie data directly back to Streamlit app backend
+    // Periodically post cookie data back to Streamlit app backend
     setInterval(function() {
         const sessionCookie = getCookie('meridian_session');
         if (sessionCookie) {
@@ -33,9 +32,8 @@ cookie_js = """
     }, 300);
 </script>
 """
-
-# Execute the hidden JS reader channel smoothly on the webpage
-cookie_receiver = components.html(cookie_js, height=0, width=0)
+# Encapsulated in iframe as required by the latest update
+cookie_receiver = st.iframe(srcdoc=cookie_js, height=0, width=0)
 
 # Process incoming session data from browser cookie payload if found
 if cookie_receiver:
@@ -67,38 +65,30 @@ if submit:
     # --- DYNAMIC PASSWORDS MATCH ENGINE ---
     try:
         users_secrets = st.secrets["users"]
-        
         if username in users_secrets:
             user_data = users_secrets[username]
-            
             if user_data.get("password") == password:
                 valid_login = True
                 if user_data.get("role") == "admin":
                     is_admin = True
-    except Exception as err:
-        st.error("System Error: Your [users] secrets block format is missing or misconfigured.")
+    except Exception:
+        st.error("System Error: Your [users] secrets block is misconfigured.")
         st.stop()
         
     if valid_login:
         st.success("Authentication accepted. Securely baking 30-day session...")
         
-        # Assemble cookie dictionary format smoothly
-        session_payload = {
-            "auth": "approved",
-            "role": "admin" if is_admin else "staff"
-        }
+        session_payload = {"auth": "approved", "role": "admin" if is_admin else "staff"}
         cookie_string = json.dumps(session_payload)
         
-        # Pure JS execution code to force write the cookie inside browser memory explicitly
-        # 2592000 seconds = 30 Days expiration timeline parameters
+        # JS to write cookie in browser memory explicitly
         js_writer = f"""
         <script>
             document.cookie = "meridian_session=" + encodeURIComponent('{cookie_string}') + "; max-age=2592000; path=/; SameSite=Strict";
         </script>
         """
-        components.html(js_writer, height=0, width=0)
+        st.iframe(srcdoc=js_writer, height=0, width=0)
         
-        # Sync current engine framework session state backup
         st.session_state["logged_in"] = True
         st.session_state["is_admin"] = is_admin
         
