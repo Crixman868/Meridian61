@@ -1,15 +1,11 @@
 import streamlit as st
 
-# --- PERSISTENCE CHECK ---
-if st.query_params.get("logged_in") != "true":
-    st.switch_page("app.py")
+# SECURITY BLOCK
+if not st.session_state.get("logged_in", False):
+    st.error("Please log in via the main page.")
+    st.stop() # This prevents the crash
 
-# --- LOGOUT ---
-if st.sidebar.button("Logout"):
-    st.query_params.clear()
-    st.switch_page("app.py")
-
-# --- YOUR EXISTING LOG CODE ---
+# --- MASTER LOG CODE ---
 st.title("📋 Master Log")
 import pandas as pd
 import gspread
