@@ -1,23 +1,46 @@
 import streamlit as st
-import extra_streamlit_components as stx
+import streamlit.components.v1 as components
 import time
 import json
 
 st.set_page_config(page_title="Meridian Gatekeeper", page_icon="🔐")
 
-# --- THE COOKIE ENGINE ---
-cookie_manager = stx.CookieManager()
+# Initialize session states as fallback layers
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+if "is_admin" not in st.session_state:
+    st.session_state["is_admin"] = False
 
-# Give the browser a split-second to send the cookies to the server
-time.sleep(0.2)
+# --- NATIVE JAVASCRIPT COOKIE MANAGEMENT ---
+# Hidden HTML channel used to pull/push long-term browser data without Python widget crashes
+cookie_js = """
+<script>
+    function getCookie(name) {
+        let match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+        if (match) return match[2];
+        return null;
+    }
+    
+    // Periodically post cookie data directly back to Streamlit app backend
+    setInterval(function() {
+        const sessionCookie = getCookie('meridian_session');
+        if (sessionCookie) {
+            window.parent.postMessage({
+                type: 'streamlit:setComponentValue',
+                value: decodeURIComponent(sessionCookie)
+            }, '*');
+        }
+    }, 300);
+</script>
+"""
 
-# Check for our unified 30-day session cookie
-cached_session = cookie_manager.get(cookie="meridian_session")
+# Execute the hidden JS reader channel smoothly on the webpage
+cookie_receiver = components.html(cookie_js, height=0, width=0)
 
-if cached_session:
+# Process incoming session data from browser cookie payload if found
+if cookie_receiver:
     try:
-        # Parse our combined cookie data safely
-        session_data = json.loads(cached_session) if isinstance(cached_session, str) else cached_session
+        session_data = json.loads(cookie_receiver)
         if session_data.get("auth") == "approved":
             st.session_state["logged_in"] = True
             st.session_state["is_admin"] = (session_data.get("role") == "admin")
@@ -26,7 +49,7 @@ if cached_session:
             st.switch_page("pages/1_Master_Tracker.py")
             st.stop()
     except Exception:
-        pass # If cookie data is corrupted, just let them log in normally
+        pass
 
 # --- LOGIN UI ---
 st.title("🔐 Meridian Logistics Gatekeeper")
@@ -57,22 +80,25 @@ if submit:
         st.stop()
         
     if valid_login:
-        st.success("Authentication accepted. Baking 30-Day security session vault...")
+        st.success("Authentication accepted. Securely baking 30-day session...")
         
-        # FIX: Combine all info into a single package so we only execute .set() exactly once!
+        # Assemble cookie dictionary format smoothly
         session_payload = {
             "auth": "approved",
             "role": "admin" if is_admin else "staff"
         }
+        cookie_string = json.dumps(session_payload)
         
-        # Serialize payload to string format for cookie storage
-        cookie_manager.set(
-            cookie="meridian_session", 
-            val=json.dumps(session_payload), 
-            max_age=2592000
-        )
+        # Pure JS execution code to force write the cookie inside browser memory explicitly
+        # 2592000 seconds = 30 Days expiration timeline parameters
+        js_writer = f"""
+        <script>
+            document.cookie = "meridian_session=" + encodeURIComponent('{cookie_string}') + "; max-age=2592000; path=/; SameSite=Strict";
+        </script>
+        """
+        components.html(js_writer, height=0, width=0)
         
-        # Set short-term memory session state as a backup layer
+        # Sync current engine framework session state backup
         st.session_state["logged_in"] = True
         st.session_state["is_admin"] = is_admin
         
