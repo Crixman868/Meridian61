@@ -265,24 +265,31 @@ with col2:
                 
         with t_pck:
             st.markdown("##### Interactive Packing Line Sheet")
-            edited_pck_df = st.data_editor(st.session_state["pck_working_df"], disabled=["SPECIFICATION OF COMMODITIES", "QUANTITY"], key="pck_table_editor", width="stretch")
-            st.session_state["pck_working_df"] = edited_pck_df
+            
+            # --- THE FORM BUFFER FIX ---
+            with st.form("packing_matrix_form"):
+                edited_pck_df = st.data_editor(st.session_state["pck_working_df"], disabled=["SPECIFICATION OF COMMODITIES", "QUANTITY"], key="pck_table_editor", width="stretch")
+                submit_packing = st.form_submit_button("⚙️ Generate & Preview Packing List", type="primary")
 
-            calculated_rows = []
-            box_cursor = 1
-            for idx, row in edited_pck_df.iterrows():
-                assigned_ctns = int(row.get("TOTAL CTNS", 0))
-                if assigned_ctns > 0:
-                    end_box = box_cursor + assigned_ctns - 1
-                    range_str = f"{box_cursor}-{end_box}" if box_cursor != end_box else f"{box_cursor}"
-                    box_cursor = end_box + 1
-                else: range_str = "0"
-                calculated_rows.append({"SPECIFICATION OF COMMODITIES": row["SPECIFICATION OF COMMODITIES"], "QUANTITY": row["QUANTITY"], "TOTAL CTNS": assigned_ctns, "CTNS NOS": range_str})
-            df_p_compiled = pd.DataFrame(calculated_rows)
-            st.session_state["df_p_compiled"] = df_p_compiled
+            if submit_packing:
+                st.session_state["pck_working_df"] = edited_pck_df
 
-            if st.button("⚙️ Preview Packing List"): 
+                calculated_rows = []
+                box_cursor = 1
+                for idx, row in edited_pck_df.iterrows():
+                    assigned_ctns = int(row.get("TOTAL CTNS", 0))
+                    if assigned_ctns > 0:
+                        end_box = box_cursor + assigned_ctns - 1
+                        range_str = f"{box_cursor}-{end_box}" if box_cursor != end_box else f"{box_cursor}"
+                        box_cursor = end_box + 1
+                    else: range_str = "0"
+                    calculated_rows.append({"SPECIFICATION OF COMMODITIES": row["SPECIFICATION OF COMMODITIES"], "QUANTITY": row["QUANTITY"], "TOTAL CTNS": assigned_ctns, "CTNS NOS": range_str})
+                
+                df_p_compiled = pd.DataFrame(calculated_rows)
+                st.session_state["df_p_compiled"] = df_p_compiled
+
                 st.session_state["h_pck"] = generate_html_document("PACKING LIST MANIFEST", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_p_compiled, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_packing=True)
+            
             if "h_pck" in st.session_state: 
                 create_print_button(st.session_state["h_pck"], "Export / Open System Print Wizard")
                 display_html_preview(st.session_state["h_pck"])
@@ -313,7 +320,6 @@ with col2:
 
                         df_all = load_log_data()
                         
-                        # ---> TOTAL CARTONS FIX INJECTED HERE <---
                         new_row = {
                             "Invoice No": str(invoice_num), 
                             "Client Name": str(client_name),
