@@ -1,98 +1,51 @@
 import streamlit as st
 import time
-import json
+import hashlib
 
 st.set_page_config(page_title="Meridian Gatekeeper", page_icon="🔐")
 
-# Initialize session states as fallback layers
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
-if "is_admin" not in st.session_state:
-    st.session_state["is_admin"] = False
+# --- THE NATIVE QUERY PARAM ENGINE ---
+# Instead of cookies, we check the URL for a persistent 'auth_token'
+params = st.query_params
+auth_token = params.get("auth_token")
 
-# --- NATIVE JAVASCRIPT COOKIE MANAGEMENT ---
-# Using st.iframe to fulfill the latest framework requirements
-cookie_js = """
-<script>
-    function getCookie(name) {
-        let match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
-        if (match) return match[2];
-        return null;
-    }
-    
-    // Periodically post cookie data back to Streamlit app backend
-    setInterval(function() {
-        const sessionCookie = getCookie('meridian_session');
-        if (sessionCookie) {
-            window.parent.postMessage({
-                type: 'streamlit:setComponentValue',
-                value: decodeURIComponent(sessionCookie)
-            }, '*');
-        }
-    }, 300);
-</script>
-"""
-# Encapsulated in iframe as required by the latest update
-cookie_receiver = st.iframe(srcdoc=cookie_js, height=0, width=0)
+# Verify token against a secret hash to prevent people from faking the URL
+SECRET_SALT = "meridian_secure_2026"
 
-# Process incoming session data from browser cookie payload if found
-if cookie_receiver:
-    try:
-        session_data = json.loads(cookie_receiver)
-        if session_data.get("auth") == "approved":
+def generate_token(username, role):
+    raw = f"{username}:{role}:{SECRET_SALT}"
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+# Validate existing token if present
+if auth_token:
+    users_secrets = st.secrets.get("users", {})
+    for user, data in users_secrets.items():
+        if generate_token(user, data["role"]) == auth_token:
             st.session_state["logged_in"] = True
-            st.session_state["is_admin"] = (session_data.get("role") == "admin")
-            st.success("Secure Session Restored! Redirecting...")
-            time.sleep(0.5)
+            st.session_state["is_admin"] = (data["role"] == "admin")
+            st.success("Session Restored!")
             st.switch_page("pages/1_Master_Tracker.py")
             st.stop()
-    except Exception:
-        pass
 
 # --- LOGIN UI ---
 st.title("🔐 Meridian Logistics Gatekeeper")
-st.markdown("Please authenticate to enter the Command Console.")
-
 with st.form("login_form"):
     username = st.text_input("Username").strip().lower()
     password = st.text_input("Password", type="password")
     submit = st.form_submit_button("Access System")
 
 if submit:
-    valid_login = False
-    is_admin = False
-    
-    # --- DYNAMIC PASSWORDS MATCH ENGINE ---
-    try:
-        users_secrets = st.secrets["users"]
-        if username in users_secrets:
-            user_data = users_secrets[username]
-            if user_data.get("password") == password:
-                valid_login = True
-                if user_data.get("role") == "admin":
-                    is_admin = True
-    except Exception:
-        st.error("System Error: Your [users] secrets block is misconfigured.")
-        st.stop()
+    users_secrets = st.secrets.get("users", {})
+    if username in users_secrets and users_secrets[username].get("password") == password:
+        role = users_secrets[username]["role"]
+        token = generate_token(username, role)
         
-    if valid_login:
-        st.success("Authentication accepted. Securely baking 30-day session...")
-        
-        session_payload = {"auth": "approved", "role": "admin" if is_admin else "staff"}
-        cookie_string = json.dumps(session_payload)
-        
-        # JS to write cookie in browser memory explicitly
-        js_writer = f"""
-        <script>
-            document.cookie = "meridian_session=" + encodeURIComponent('{cookie_string}') + "; max-age=2592000; path=/; SameSite=Strict";
-        </script>
-        """
-        st.iframe(srcdoc=js_writer, height=0, width=0)
-        
+        # Save session and redirect to URL with the secret token attached
         st.session_state["logged_in"] = True
-        st.session_state["is_admin"] = is_admin
+        st.session_state["is_admin"] = (role == "admin")
         
-        time.sleep(1)
+        # This forces the browser to remember the user via the URL
+        st.query_params["auth_token"] = token
         st.rerun()
     else:
         st.error("🚨 Invalid username or password.")
