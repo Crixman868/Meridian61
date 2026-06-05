@@ -1,14 +1,13 @@
 import streamlit as st
 
 # --- STRICT ADMIN SECURITY BLOCK ---
-# 1. Catch anyone who bypassed the login page entirely
 if not st.session_state.get("logged_in", False):
     st.switch_page("0_Gatekeeper.py")
 
-# 2. Catch logged-in staff (Elton/Smallman) trying to enter an Admin area
 if not st.session_state.get("is_admin", False):
     st.error("🚨 RESTRICTED AREA: Administrator clearance required.")
-    st.stop() # This instantly halts the script so no sensitive data loads
+    st.stop() 
+
 import streamlit.components.v1 as components
 import pandas as pd
 import os
@@ -19,7 +18,8 @@ import jinja2
 import re
 import tempfile
 from googleapiclient.discovery import build
-from google.oauth2.credentials import Credentials
+from google.oauth2.credentials import Credentials as HumanCredentials
+from google.oauth2.service_account import Credentials as BotCredentials
 from googleapiclient.http import MediaFileUpload
 from weasyprint import HTML
 
@@ -31,20 +31,19 @@ st.set_page_config(page_title="Master Tracker", page_icon="📦", layout="wide")
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1ipB1DaIdX_BS_0iSWRHMwHcP-wEpfu2pZzFT3nJtlho/edit?gid=0#gid=0"
 ROOT_FOLDER_ID = "19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"
 
-if "logged_in" not in st.session_state or st.session_state["logged_in"] == False:
-    st.error("🚨 Access Denied. Please log in through the Secure Gatekeeper.")
-    st.stop()
-
-# --- GOOGLE AUTHENTICATION & DRIVE ENGINE ---
-def get_creds():
-    token_dict = json.loads(st.secrets["google_drive_human"]["token"])
-    return Credentials.from_authorized_user_info(token_dict)
-
+# --- THE HYBRID AUTHENTICATION SYSTEM ---
 def get_gspread_client():
-    return gspread.authorize(get_creds())
+    creds_dict = json.loads(st.secrets["google_api"]["credentials"])
+    creds = BotCredentials.from_service_account_info(
+        creds_dict, 
+        scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.readonly"]
+    )
+    return gspread.authorize(creds)
 
 def get_drive_service():
-    return build('drive', 'v3', credentials=get_creds())
+    token_dict = json.loads(st.secrets["google_drive_human"]["token"])
+    creds = HumanCredentials.from_authorized_user_info(token_dict)
+    return build('drive', 'v3', credentials=creds)
 
 def upload_system_pdf_to_drive(html_content, file_name, client_name, invoice_no):
     if not html_content: return "Pending Upload"
@@ -57,7 +56,6 @@ def upload_system_pdf_to_drive(html_content, file_name, client_name, invoice_no)
         inv_folders = drive.files().list(q=f"name='{invoice_no}' and '{client_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
         inv_folder_id = inv_folders[0]['id'] if inv_folders else drive.files().create(body={"name": invoice_no, "parents": [client_folder_id], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
         
-        # WEASYPRINT NATIVE CONVERSION (The Exact Replica)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_pdf:
             temp_pdf_path = temp_pdf.name
             
@@ -73,7 +71,6 @@ def upload_system_pdf_to_drive(html_content, file_name, client_name, invoice_no)
         st.error(f"PDF Engine Error for {file_name}: {e}")
         return "Upload Failed"
 
-# --- DATABASE ENGINES ---
 def load_log_data():
     try: return pd.DataFrame(get_gspread_client().open_by_url(SHEET_URL).sheet1.get_all_records())
     except: return pd.DataFrame()
@@ -110,7 +107,6 @@ def save_supplier_mapping(supplier, desc, qty, price):
     df = pd.concat([df, pd.DataFrame([{"Supplier": supplier, "DescCol": desc, "QtyCol": qty, "PriceCol": price}])], ignore_index=True)
     df.to_csv("supplier_mappings.csv", index=False)
 
-# --- DOCUMENT HTML FACTORY ---
 def generate_html_document(title, inv_no, date, client, c_addr, supplier, s_profile, bl, total_ctns, df, total_val, freight=None, additional_notes="", payment_terms="", signatory_position="", is_packing=False, is_caricom=False, is_duties=False, duty_data=None):
     logo_path = get_img_b64(f"logos/{s_profile.get('Name', '')}_logo.png")
     sig_path = get_img_b64(f"signatures/{s_profile.get('Name', '')}_sig.png")
@@ -317,6 +313,7 @@ with col2:
 
                         df_all = load_log_data()
                         
+                        # ---> TOTAL CARTONS FIX INJECTED HERE <---
                         new_row = {
                             "Invoice No": str(invoice_num), 
                             "Client Name": str(client_name),
@@ -326,6 +323,7 @@ with col2:
                             "Lodged Status": "No",
                             "Shipment Status": "Active",
                             "NALDO": "No",
+                            "Total Cartons": int(container_total_ctns), 
                             "Commercial Invoice": inv_link,
                             "CARICOM Invoice": car_link, 
                             "Sequential Packing List": pck_link, 
