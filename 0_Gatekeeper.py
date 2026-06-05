@@ -1,102 +1,71 @@
 import streamlit as st
-import os
+import extra_streamlit_components as stx
+import time
 
-# --- PAGE CONFIG ---
-st.set_page_config(page_title="Meridian 61 Access", page_icon="🌐", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Meridian Gatekeeper", page_icon="🔐")
 
-# --- BRANDING & STYLING ---
-st.markdown("""
-    <style>
-    /* 1. Hide the Sidebar on the Login Page to prevent bypassing */
-    [data-testid="stSidebar"] {
-        display: none !important;
-    }
+# --- THE COOKIE ENGINE ---
+@st.cache_resource
+def get_cookie_manager():
+    return stx.CookieManager()
     
-    /* 2. The Custom Orange Orbital Background - NOW PURE WHITE BASE */
-    /* By using #FFFFFF, the white square behind your logo completely disappears */
-    .stApp {
-        background-color: #FFFFFF;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 900' preserveAspectRatio='xMidYMid slice'%3E%3Cpath d='M-200,1000 C400,600 1000,200 1600,-200' fill='none' stroke='%23FF6700' stroke-width='120' stroke-opacity='0.12' /%3E%3Cpath d='M-200,1000 C400,600 1000,200 1600,-200' fill='none' stroke='%23FF6700' stroke-width='8' stroke-opacity='0.45' transform='translate(0, -60)' /%3E%3C/svg%3E");
-        background-attachment: fixed;
-        background-position: center;
-        background-repeat: no-repeat;
-        background-size: cover;
-    }
-    
-    /* 3. Force Vibrant Orange Primary Button */
-    div[data-testid="stButton"] > button {
-        background-color: #FF6700 !important;
-        color: white !important;
-        border: none !important;
-        font-weight: bold !important;
-        border-radius: 8px !important;
-        height: 50px !important;
-        transition: all 0.3s ease;
-        box-shadow: 0px 4px 10px rgba(255, 103, 0, 0.2);
-        margin-top: 15px;
-    }
-    div[data-testid="stButton"] > button:hover {
-        background-color: #E65C00 !important;
-        box-shadow: 0px 6px 15px rgba(255, 103, 0, 0.3);
-    }
-    
-    /* 4. Remove the default top padding to pull everything up cleanly */
-    .block-container {
-        padding-top: 3rem !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+cookie_manager = get_cookie_manager()
 
-# --- NATIVE STREAMLIT CENTERING ---
-# Squeeze the entire form into the middle of the screen
-spacer_left, main_col, spacer_right = st.columns([1, 1.2, 1])
+# Give the browser a split-second to send the cookies to the server
+time.sleep(0.1)
 
-with main_col:
-    # --- EXACT LOGO CENTERING ---
-    # We use another set of columns specifically to lock the image dead-center
-    st.write("") # Small spacer at the top
-    logo_left, logo_center, logo_right = st.columns([1, 1.5, 1])
-    
-    with logo_center:
-        if os.path.exists("assets/logo.png"):
-            st.image("assets/logo.png", use_container_width=True)
-        elif os.path.exists("logo.png"):
-            st.image("logo.png", use_container_width=True)
-        else:
-            st.warning("⚠️ Logo file missing. System running in text-only mode.")
+# Check for existing 30-day session cookies
+cached_auth = cookie_manager.get(cookie="meridian_auth")
+cached_role = cookie_manager.get(cookie="meridian_role")
 
-    # --- TITLES ---
-    st.markdown("<h2 style='text-align: center; color: #0A2240; margin-bottom: 0px; padding-top: 10px;'>Portal Access</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #666666; margin-bottom: 30px; font-size: 16px;'>Secure Gatekeeper</p>", unsafe_allow_html=True)
+if cached_auth == "approved":
+    st.session_state["logged_in"] = True
+    st.session_state["is_admin"] = (cached_role == "admin")
+    st.success("Secure Session Restored! Redirecting...")
+    time.sleep(0.5)
+    st.switch_page("pages/1_Master_Tracker.py")
+    st.stop()
 
-    # --- LOGIN FORM ---
-    user = st.text_input("Username")
+# --- LOGIN UI ---
+st.title("🔐 Meridian Logistics Gatekeeper")
+st.markdown("Please authenticate to enter the Command Console.")
+
+with st.form("login_form"):
+    username = st.text_input("Username").strip().lower()
     password = st.text_input("Password", type="password")
+    submit = st.form_submit_button("Access System")
 
-    # --- ROUTING & ACCESS CONTROL LOGIC ---
-    if st.button("Enter Portal", use_container_width=True):
+if submit:
+    valid_login = False
+    is_admin = False
+    
+    # --- PASSWORD VERIFICATION ---
+    # This assumes your Streamlit Secrets has a [passwords] section
+    try:
+        secrets = st.secrets["passwords"]
+        if username in secrets and secrets[username] == password:
+            valid_login = True
+            
+            # Identify if the user is an Admin (like 'allrounder' or 'admin')
+            # Add any other admin usernames to this list if needed
+            if username in ["admin", "allrounder", "crixman"]: 
+                is_admin = True
+    except KeyError:
+        st.error("System Error: [passwords] block missing from Streamlit Secrets.")
+        st.stop()
         
-        # 1. Administrator Level (Full Access)
-        if user == "allrounder" and password == "Cocosteaw123!": 
-            st.session_state["logged_in"] = True
-            st.session_state["is_admin"] = True
-            st.success("Admin Authentication successful. Initializing Master Log...")
-            st.switch_page("pages/3_Master_Log.py")
-            
-        # 2. Staff Level - Elton (Read-Only)
-        elif user == "elton" and password == "8681":
-            st.session_state["logged_in"] = True
-            st.session_state["is_admin"] = False
-            st.success("Staff Authentication successful. Loading View-Only Log...")
-            st.switch_page("pages/3_Master_Log.py")
-            
-        # 3. Staff Level - Smallman (Read-Only)
-        elif user == "smallman" and password == "8682":
-            st.session_state["logged_in"] = True
-            st.session_state["is_admin"] = False
-            st.success("Staff Authentication successful. Loading View-Only Log...")
-            st.switch_page("pages/3_Master_Log.py")
-            
-        # 4. Failed Authentication
-        else:
-            st.error("Access Denied. Invalid credentials.")
+    if valid_login:
+        st.success("Authentication accepted. Baking 30-Day security cookies...")
+        
+        # SET COOKIES (2,592,000 seconds = 30 Days)
+        cookie_manager.set("meridian_auth", "approved", max_age=2592000)
+        cookie_manager.set("meridian_role", "admin" if is_admin else "staff", max_age=2592000)
+        
+        # Set short-term memory as a backup
+        st.session_state["logged_in"] = True
+        st.session_state["is_admin"] = is_admin
+        
+        time.sleep(1)
+        st.rerun()
+    else:
+        st.error("🚨 Invalid username or password.")
