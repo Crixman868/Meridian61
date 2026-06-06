@@ -13,7 +13,6 @@
         @page {
             size: letter landscape;
             margin: 0.25in;
-            /* Watermark removed from CSS to bypass xhtml2pdf rendering bug */
         }
         
         body {
@@ -321,6 +320,7 @@
                         <strong>CARICOM COMMON MARKET DECLARATION:</strong><br>
                         The undermentioned exporter hereby declares that the cargo specified in this commercial invoice manifest has been produced completely within the parameters of the common market rules of origin. All values and freight indices specified herein match active terminal data profiles perfectly.
                     </div>
+                    {% if 'PACKING' not in title and 'DUTIES' not in title %}
                     <div class="signature-suite">
                         <div style="font-size: 8px; color: #111111; text-transform: uppercase; font-weight: bold;">Authorized Vendor Authentication Signature</div>
                         <div class="signature-frame">
@@ -330,6 +330,7 @@
                         </div>
                         <div style="font-size: 9px; font-weight: bold; color: #111111; margin-top: 2px;">{{ signatory_position }}</div>
                     </div>
+                    {% endif %}
                 </td>
                 
                 <td class="financial-pane">
