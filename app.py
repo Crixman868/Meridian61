@@ -62,7 +62,6 @@ for folder in ["uploaded_docs", "logos", "signatures", "watermarks", "templates"
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1wUBZSnB7cJ2T5_iY5_POpfsNmZn0INGj08EdcLc7TsQ/edit?usp=sharing"
 ROOT_FOLDER_ID = "1CITSPAI-BoFeQQLLkmeoX2wkjunTbpGm"
 
-# Added Panama
 ALL_COUNTRIES = [
     "", "USA", "China", "UK", "Canada", "Brazil", "Mexico", "Panama", "Japan", "Germany", 
     "India", "France", "Italy", "South Korea", "Spain", "Australia", "Taiwan", 
@@ -75,7 +74,6 @@ SYSTEM_DOCS = ["Commercial Invoice", "CARICOM Invoice", "Sequential Packing List
 EXTERNAL_DOCS = ["Bill of Lading Scan", "Original Invoice", "Original Packing List", "Tracker Document", "Other Documents", "Miscellaneous Supporting Doc"]
 ALL_DOCS = SYSTEM_DOCS + EXTERNAL_DOCS
 
-# Core column structure to ensure safe shell creation
 LOG_COLUMNS = [
     "Invoice No", "Client Name", "Container #", "Country of Origin", "ETA", 
     "Lodged Status", "Shipment Status", "NALDO", "Total Cartons", 
@@ -108,12 +106,9 @@ def load_log_data():
             return pd.DataFrame(columns=LOG_COLUMNS)
         
         df = pd.DataFrame(records)
-        
-        # Bulletproofing: Force missing columns to exist so we NEVER get a KeyError
         for col in LOG_COLUMNS:
             if col not in df.columns:
                 df[col] = ""
-                
         return df
     except Exception as e: 
         st.error(f"Failed to load data: {e}")
@@ -123,12 +118,9 @@ def save_log_data(df):
     try:
         ws = get_gspread_client().open_by_url(SHEET_URL).sheet1
         ws.clear()
-        
-        # Ensure exact column preservation
         for col in LOG_COLUMNS:
             if col not in df.columns: df[col] = ""
         df = df[LOG_COLUMNS]
-        
         ws.update([df.fillna("").columns.values.tolist()] + df.fillna("").values.tolist())
         return True
     except Exception as e:
@@ -152,10 +144,17 @@ def upload_system_pdf_to_drive(html_content, file_name, client_name, invoice_no)
             temp_pdf_path = temp_pdf.name
             
         HTML(string=html_content).write_pdf(temp_pdf_path)
-        
-        pdf_metadata = {'name': file_name, 'parents': [inv_folder_id]}
         pdf_media = MediaFileUpload(temp_pdf_path, mimetype='application/pdf', resumable=True)
-        final_pdf = drive.files().create(body=pdf_metadata, media_body=pdf_media, fields='id, webViewLink').execute()
+        
+        # Overwrite Logic
+        existing_files = drive.files().list(q=f"name='{file_name}' and '{inv_folder_id}' in parents and trashed=false", fields="files(id, webViewLink)").execute().get('files', [])
+        
+        if existing_files:
+            file_id = existing_files[0]['id']
+            final_pdf = drive.files().update(fileId=file_id, media_body=pdf_media, fields='id, webViewLink').execute()
+        else:
+            pdf_metadata = {'name': file_name, 'parents': [inv_folder_id]}
+            final_pdf = drive.files().create(body=pdf_metadata, media_body=pdf_media, fields='id, webViewLink').execute()
         
         os.remove(temp_pdf_path)
         return final_pdf.get('webViewLink', 'Upload Failed')
@@ -180,10 +179,18 @@ def upload_physical_file_to_drive(uploaded_file, file_name, client_name, invoice
         with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
             temp_file.write(uploaded_file.getvalue())
             temp_path = temp_file.name
-
-        file_metadata = {'name': file_name, 'parents': [inv_folder_id]}
+            
         media = MediaFileUpload(temp_path, resumable=True)
-        file = drive.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
+
+        # Overwrite Logic
+        existing_files = drive.files().list(q=f"name='{file_name}' and '{inv_folder_id}' in parents and trashed=false", fields="files(id, webViewLink)").execute().get('files', [])
+        
+        if existing_files:
+            file_id = existing_files[0]['id']
+            file = drive.files().update(fileId=file_id, media_body=media, fields='id, webViewLink').execute()
+        else:
+            file_metadata = {'name': file_name, 'parents': [inv_folder_id]}
+            file = drive.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
         
         os.remove(temp_path)
         return file.get('webViewLink')
@@ -307,7 +314,6 @@ def render_master_log():
             naldo_val = str(row.get("NALDO", "No")).strip().upper()
             naldo_display = f"🔴 NALDO: YES" if naldo_val == "YES" else f"⚪ NALDO: NO"
             
-            # Pristine Shopfloor header layout
             header_text = (f"📦 TOTAL CTNS: {total_cartons} | {status_label} | ETA: {current_date} | "
                            f"Client: {client_name} | Origin: {row.get('Country of Origin', 'N/A')} | "
                            f"Lodged: {row.get('Lodged Status', 'N/A')} | {naldo_display} | INV: {inv_no}")
@@ -342,7 +348,6 @@ def render_master_log():
                         else:
                             st.button("Pending Upload", disabled=True, key=f"pend_{idx}_{i}", use_container_width=True)
                         
-                        # The Critical External Upload Slots
                         if slot in EXTERNAL_DOCS:
                             uploaded_file = st.file_uploader(f"Upload {slot}", key=f"up_{idx}_{i}", label_visibility="collapsed")
                             if uploaded_file:
@@ -371,14 +376,11 @@ def render_master_log():
 def render_admin_tracker():
     st.title("📦 Command Console: Master Tracker")
     
-    # Check Active Shell mapping
     active_shell = st.session_state.get("active_shell_id", "")
     if not active_shell or active_shell == "-- Choose Active Workspace --":
         st.warning("⚠️ Access Restriction: Please create or select an Active Workspace Shell from the top menu to enable data intake.")
         return
 
-    # Helper script to sync base metadata from Tracker to Log
-    # FIX APPLIED HERE: str(int(ctns)) forces text formatting, preventing PyArrow strict typing crash
     def sync_base_metadata_to_log(df_active, inv_num, c_name, ctns, date):
         idx = df_active.index[df_active['Invoice No'] == active_shell].tolist()[0]
         df_active.at[idx, "Client Name"] = str(c_name)
@@ -426,7 +428,6 @@ def render_admin_tracker():
         st.markdown("#### Logistics Manifest Fields")
         cx1, cx2 = st.columns(2)
         with cx1:
-            # Prefill Invoice Number with the Active Shell ID to make linking flawless
             invoice_num = st.text_input("Invoice Number", value=active_shell)
             invoice_date = st.text_input("Invoice Date / ETA", value=datetime.now().strftime("%Y-%m-%d"))
             bl_number = st.text_input("Bill of Lading (BL#)")
@@ -450,12 +451,10 @@ def render_admin_tracker():
     with col2:
         st.subheader("Targeted Document Generation (Save Independently)")
         
-        # Base variables definition
         df_clean = pd.DataFrame(columns=["Description", "Qty", "UnitPrice", "Total Foreign (USD)"])
         subtotal_foreign = 0.0
         duty_dict = {'exchange_rate': exchange_rate, 'convert_to_ttd': 0, 'duty_owed': 0, 'vat_owed': 0, 'fixed_fees': ces_fee + uf_fee, 'grand_total_ttd': 0}
         
-        # Only process DataFrame calculations if file is active
         if uploaded_file and map_description != "-- Select --" and map_qty != "-- Select --" and map_price != "-- Select --":
             df_clean = df_raw[[map_description, map_qty, map_price]].dropna().copy()
             df_clean.columns = ["Description", "Qty", "UnitPrice"]
@@ -486,7 +485,6 @@ def render_admin_tracker():
             if "h_inv" in st.session_state: 
                 display_html_preview(st.session_state["h_inv"])
                 
-                # Single Document Save Action
                 if st.button("💾 Save Commercial Invoice Only", type="primary", use_container_width=True):
                     with st.spinner("Locking Commercial Invoice PDF to Drive Vault..."):
                         if client_name == "Select a Client...":
@@ -507,7 +505,6 @@ def render_admin_tracker():
             if "h_car" in st.session_state: 
                 display_html_preview(st.session_state["h_car"])
                 
-                # Single Document Save Action
                 if st.button("💾 Save CARICOM Invoice Only", type="primary", use_container_width=True):
                     with st.spinner("Locking CARICOM Invoice PDF to Drive Vault..."):
                         if client_name == "Select a Client...":
@@ -550,7 +547,6 @@ def render_admin_tracker():
             if "h_pck" in st.session_state: 
                 display_html_preview(st.session_state["h_pck"])
                 
-                # Single Document Save Action
                 if st.button("💾 Save Packing Manifest Only", type="primary", use_container_width=True):
                     with st.spinner("Locking Sequential Packing Manifest to Drive Vault..."):
                         if client_name == "Select a Client...":
@@ -570,7 +566,6 @@ def render_admin_tracker():
             if "h_dut" in st.session_state: 
                 display_html_preview(st.session_state["h_dut"])
                 
-                # Single Document Save Action
                 if st.button("💾 Save Customs Summary Only", type="primary", use_container_width=True):
                     with st.spinner("Locking Official Customs Summary to Drive Vault..."):
                         if client_name == "Select a Client...":
@@ -596,7 +591,7 @@ with col_create:
         with st.spinner("Initializing Workspace Shell..."):
             df_current = load_log_data()
             
-            # Smart sequential generator based on M61 format
+            # Smart sequential generator based on INV format
             next_num = 1001
             if not df_current.empty and "Invoice No" in df_current.columns:
                 valid_ids = df_current["Invoice No"].astype(str).tolist()
@@ -631,7 +626,7 @@ with col_select:
             
             label = f"Workspace: {s_id}"
             if s_client: label += f" | Client: {s_client}"
-            if s_ctns: label += f" | Cartons: {s_ctns}"
+            if s_ctns and s_ctns != "0": label += f" | Cartons: {s_ctns}"
             dropdown_options.append(label)
 
     current_target = st.session_state.get("active_shell_id", "-- Choose Active Workspace --")
