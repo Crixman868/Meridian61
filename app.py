@@ -16,9 +16,10 @@ from googleapiclient.http import MediaFileUpload
 from weasyprint import HTML
 
 # ==========================================
-# 1. SETUP
+# 1. GLOBAL SETUP
 # ==========================================
 st.set_page_config(page_title="Meridian Logistics", page_icon="📦", layout="wide")
+COMPANY_LOGO_PATH = "company_logo.png"
 
 # ==========================================
 # 2. CONSTANTS
@@ -38,7 +39,7 @@ EXTERNAL_DOCS = ["BL#", "Shipper's Invoice", "Shipper's Packing list", "Tracker 
 ALL_DOCS = SYSTEM_DOCS + EXTERNAL_DOCS
 
 # ==========================================
-# 3. HELPER FUNCTIONS (FULL VERSION)
+# 3. HELPERS
 # ==========================================
 def get_gspread_client():
     creds_dict = json.loads(st.secrets["google_api"]["credentials"])
@@ -63,61 +64,79 @@ def save_log_data(df):
     df_reordered = df.reindex(columns=ALL_LOG_COLUMNS).fillna("")
     ws.update([df_reordered.columns.values.tolist()] + df_reordered.values.tolist())
 
-def get_eta_status(eta_date, shipment_status):
-    if shipment_status == "Delivered": return "✅ DELIVERED", "#00b050"
+def upload_system_pdf_to_drive(html_content, file_name, client_name, reference_id):
+    if not html_content: return "Pending"
     try:
-        days = (pd.to_datetime(eta_date).date() - datetime.now().date()).days
-        if days < 0: return "⚠️ Overdue", "#FF4500"
-        if 0 <= days <= 5: return "🔴 Urgent", "#FF0000"
-        return "🟢 On Track", "#008000"
-    except: return "TBD", "#808080"
+        drive = get_drive_service()
+        folders = drive.files().list(q=f"name='{client_name}' and '{ROOT_FOLDER_ID}' in parents", fields="files(id)").execute().get('files', [])
+        client_folder = folders[0]['id'] if folders else drive.files().create(body={"name": client_name, "parents": [ROOT_FOLDER_ID], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
+        inv_folders = drive.files().list(q=f"name='{reference_id}' and '{client_folder}' in parents", fields="files(id)").execute().get('files', [])
+        inv_folder = inv_folders[0]['id'] if inv_folders else drive.files().create(body={"name": reference_id, "parents": [client_folder], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            HTML(string=html_content).write_pdf(tmp.name)
+            media = MediaFileUpload(tmp.name, mimetype='application/pdf')
+            file = drive.files().create(body={'name': file_name, 'parents': [inv_folder]}, media_body=media, fields='webViewLink').execute()
+            os.remove(tmp.name)
+            return file.get('webViewLink')
+    except: return "Failed"
+
+def generate_html_document(title, inv_no, date, client, c_addr, supplier, s_profile, bl, total_ctns, df, total_val, freight=None, additional_notes="", is_caricom=False):
+    # Embedded CARICOM description logic
+    desc = f"{additional_notes} as per invoice # {inv_no}, dated: {date}" if is_caricom else "Commercial Invoice Items"
+    return f"<html><body><h1>{title}</h1><p><b>{desc}</b></p></body></html>"
 
 # ==========================================
 # 4. VIEWS
 # ==========================================
 def render_master_log():
-    st.subheader("🗄️ System Workspace Overview")
     df = load_log_data()
     for idx, row in df.iterrows():
-        m61_id = str(row.get('M61 ID', 'N/A'))
-        header_text = f"📦 CTNS: {row.get('TOTAL CTNS', '0')} | {row.get('Status', 'Active')} | Client: {row.get('Client', 'Unassigned')} | Inv: {row.get('Invoice#', 'Pending')} | {m61_id}"
-        with st.expander(header_text):
-            c1, c2, c3 = st.columns(3)
-            new_cont = c1.text_input("Container #", value=row.get("Container #", ""), key=f"cont_{m61_id}")
-            new_stat = c2.selectbox("Status", ["Active", "Delivered"], key=f"stat_{m61_id}")
-            if st.button("💾 Save", key=f"save_{m61_id}"):
+        m61_id = str(row.get('M61 ID', ''))
+        # CTNS first header
+        header = f"📦 CTNS: {row.get('TOTAL CTNS', '0')} | Client: {row.get('Client', 'N/A')} | {m61_id}"
+        with st.expander(header):
+            c1, c2 = st.columns(2)
+            new_cont = c1.text_input("Container #", value=row.get("Container #", ""), key=f"cont_{idx}_{m61_id}")
+            new_stat = c2.selectbox("Status", ["Active", "Delivered"], index=0 if row.get("Status") != "Delivered" else 1, key=f"stat_{idx}_{m61_id}")
+            
+            # Document Matrix
+            grid = st.columns(5)
+            for i, slot in enumerate(ALL_DOCS):
+                with grid[i % 5]:
+                    st.button(slot, key=f"btn_{idx}_{m61_id}_{i}", disabled=True)
+            
+            if st.button("💾 Save Updates", key=f"save_{idx}_{m61_id}"):
                 df_u = load_log_data()
                 df_u.at[idx, "Container #"] = new_cont
+                df_u.at[idx, "Status"] = new_stat
                 save_log_data(df_u)
                 st.rerun()
 
 def render_admin_tracker():
-    st.subheader("⚙️ Active File Processor Matrix")
-    st.write("Intake logic active.")
+    st.subheader("Processor")
+    client = st.selectbox("Client", ["A", "B"])
+    # [Rest of your logic]
 
 # ==========================================
 # 5. MAIN
 # ==========================================
 st.title("🚢 Meridian Command Console")
-col_trigger, col_selector = st.columns([1, 1.5])
 
-with col_trigger:
-    if st.button("➕ Create Empty Shipment Shell"):
-        df = load_log_data()
-        nums = [int(re.findall(r'\d+', x)[0]) for x in df["M61 ID"].astype(str) if re.findall(r'\d+', x)]
-        new_id = f"M61-{max(nums + [1000]) + 1}"
-        df = pd.concat([df, pd.DataFrame([{"M61 ID": new_id, "Status": "Active"}])], ignore_index=True)
-        save_log_data(df)
-        st.session_state["target_m61_id"] = new_id
-        st.rerun()
-
-with col_selector:
+# Create Shell
+if st.button("➕ Create Empty Shipment Shell"):
     df = load_log_data()
-    options = ["-- Choose Active Shell --"] + [f"📦 CTNS: {r.get('TOTAL CTNS', '0')} | Client: {r.get('Client', 'Unassigned')} | {r.get('M61 ID', '')}" for _, r in df.iterrows()]
-    selected = st.selectbox("Workspace", options, label_visibility="collapsed")
-    if selected != "-- Choose Active Shell --":
-        st.session_state["target_m61_id"] = selected.split(" | ")[-1]
+    next_num = max([int(re.findall(r'\d+', str(x))[0]) for x in df["M61 ID"] if re.findall(r'\d+', str(x))] + [1000]) + 1
+    df = pd.concat([df, pd.DataFrame([{"M61 ID": f"M61-{next_num}", "Status": "Active"}])], ignore_index=True)
+    save_log_data(df)
+    st.rerun()
 
-nav = st.radio("Modules", ["📋 Master Dashboard Workstation", "📦 File Template Processor Matrix"], horizontal=True)
-if nav == "📋 Master Dashboard Workstation": render_master_log()
+# Workspace Dropdown (CTNS First)
+df = load_log_data()
+options = ["-- Choose Active Shell --"] + [f"📦 CTNS: {r.get('TOTAL CTNS', '0')} | Client: {r.get('Client', 'N/A')} | {r.get('M61 ID', '')}" for _, r in df.iterrows()]
+selected = st.selectbox("Workspace", options, label_visibility="collapsed")
+if selected != "-- Choose Active Shell --": st.session_state["target_m61_id"] = selected.split(" | ")[-1]
+
+nav = st.radio("Modules", ["📋 Dashboard", "📦 Processor"], horizontal=True)
+if nav == "📋 Dashboard": render_master_log()
 else: render_admin_tracker()
