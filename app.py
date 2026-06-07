@@ -307,7 +307,8 @@ def render_master_log():
             naldo_val = str(row.get("NALDO", "No")).strip().upper()
             naldo_display = f"🔴 NALDO: YES" if naldo_val == "YES" else f"⚪ NALDO: NO"
             
-            header_text = f"⚙️ {m61_id} | CTNS: {total_cartons if total_cartons else '0'} | {status_label} | Client: {client_name if client_name else 'Unassigned'} | Inv: {inv_no if inv_no else 'Pending'} | Cont: {container_no if container_no else 'Pending'} | {naldo_display}"
+            # Formatted Header exactly matching muscle memory: CTNS first, ID tucked at the end
+            header_text = f"📦 CTNS: {total_cartons if total_cartons else '0'} | {status_label} | Client: {client_name if client_name else 'Unassigned'} | Inv: {inv_no if inv_no else 'Pending'} | Cont: {container_no if container_no else 'Pending'} | {naldo_display} | {m61_id}"
 
             with st.expander(header_text):
                 col1, col2, col3, col4, col5, col6 = st.columns(6)
@@ -519,7 +520,8 @@ def render_admin_tracker():
                         df_all = load_log_data()
                         row_index = df_all.index[df_all['M61 ID'].astype(str) == target_id].tolist()[0]
                         
-                        df_all.at[row_index, "TOTAL CTNS"] = str(container_total_ctns)
+                        # Data format explicitly preserved as integer
+                        df_all.at[row_index, "TOTAL CTNS"] = int(container_total_ctns)
                         df_all.at[row_index, "Invoice#"] = str(invoice_num)
                         df_all.at[row_index, "BL#"] = str(bl_number)
                         df_all.at[row_index, "Client"] = str(client_name)
@@ -553,7 +555,7 @@ with col_trigger:
         with st.spinner("Initializing serial master workspace shell..."):
             df_current = load_log_data()
             
-            # Smart serial index look-up logic
+            # Smart serial index look-up logic looking for original M61- prefix
             next_num = 1001
             if not df_current.empty and "M61 ID" in df_current.columns:
                 valid_ids = df_current["M61 ID"].astype(str).tolist()
@@ -590,21 +592,22 @@ with col_selector:
             s_cont = str(r.get("Container #", "")).strip()
             s_client = str(r.get("Client", "")).strip()
             
-            # Formatting the Smart CTNS Front-Loaded Label string
-            label = f"{s_id}"
-            if s_ctns: label += f" | CTNS: {s_ctns}"
+            # Formatting the Smart CTNS Front-Loaded Label string exactly as requested
+            label = f"📦 CTNS: {s_ctns if s_ctns else '0'}"
             if s_client: label += f" | Client: {s_client}"
             if s_inv: label += f" | Inv: {s_inv}"
             if s_cont: label += f" | Cont: {s_cont}"
             
             if not s_ctns and not s_inv and not s_cont: 
                 label += " (New Empty Shell)"
+                
+            label += f" | {s_id}" # ID safely anchored at the end
             
             dropdown_options.append(label)
 
     # Determine dynamic state index tracking focus selector anchor point
     current_target = st.session_state.get("target_m61_id", "-- Choose Active Shell --")
-    matching_indices = [i for i, opt in enumerate(dropdown_options) if opt.startswith(str(current_target))]
+    matching_indices = [i for i, opt in enumerate(dropdown_options) if current_target in opt]
     default_sel_idx = matching_indices[0] if matching_indices else 0
 
     selected_option = st.selectbox(
@@ -615,7 +618,10 @@ with col_selector:
     )
     
     if selected_option != "-- Choose Active Shell --":
-        st.session_state["target_m61_id"] = selected_option.split(" ")[0]
+        # Extract the M61-XXXX ID safely from the formatted string using regex
+        match = re.search(r'(M61-\d+)', selected_option)
+        if match:
+            st.session_state["target_m61_id"] = match.group(1)
     else:
         st.session_state["target_m61_id"] = "-- Choose Active Shell --"
 
