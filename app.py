@@ -354,7 +354,8 @@ def render_master_log():
                 if st.button("💾 Save Shipment Updates", key=f"save_{idx}", type="primary"):
                     with st.spinner("Processing updates..."):
                         df_update = load_log_data()
-                        row_index = df_update.index[df_update['Invoice No'].astype(str) == inv_no].tolist()[0]
+                        # Use .strip() to clean string lookups
+                        row_index = df_update.index[df_update['Invoice No'].astype(str).str.strip() == inv_no.strip()].tolist()[0]
                         df_update.at[row_index, "Container #"] = new_cont
                         df_update.at[row_index, "Country of Origin"] = new_orig
                         df_update.at[row_index, "ETA"] = str(new_eta)
@@ -379,9 +380,10 @@ def render_admin_tracker():
         st.warning("⚠️ Access Restriction: Please create or select an Active Workspace Shell from the top menu to enable data intake.")
         return
 
+    # Smart sync logic with whitespace stripping to prevent double entries
     def sync_base_metadata_to_log(df_active, inv_num, c_name, ctns, date):
-        # Match against current Active Shell ID
-        matches = df_active.index[df_active['Invoice No'].astype(str) == str(active_shell)].tolist()
+        # Force string comparisons to ignore invisible whitespace
+        matches = df_active.index[df_active['Invoice No'].astype(str).str.strip() == str(active_shell).strip()].tolist()
         
         if matches:
             idx = matches[0]
@@ -389,19 +391,18 @@ def render_admin_tracker():
             df_active.at[idx, "Total Cartons"] = str(int(ctns))
             df_active.at[idx, "ETA"] = str(date)
             # Update the Invoice ID if it changed
-            if str(inv_num).strip() and str(inv_num) != active_shell:
-                df_active.at[idx, "Invoice No"] = str(inv_num)
-                st.session_state["active_shell_id"] = str(inv_num)
+            if str(inv_num).strip() and str(inv_num).strip() != str(active_shell).strip():
+                df_active.at[idx, "Invoice No"] = str(inv_num).strip()
+                st.session_state["active_shell_id"] = str(inv_num).strip()
         else:
-            # If not found (e.g. rename happened), try to find by intended ID
             new_row = {col: "" for col in LOG_COLUMNS}
-            new_row["Invoice No"] = str(inv_num)
+            new_row["Invoice No"] = str(inv_num).strip()
             new_row["Client Name"] = str(c_name)
             new_row["Total Cartons"] = str(int(ctns))
             new_row["ETA"] = str(date)
             new_row["Shipment Status"] = "Active"
             df_active = pd.concat([df_active, pd.DataFrame([new_row])], ignore_index=True)
-            st.session_state["active_shell_id"] = str(inv_num)
+            st.session_state["active_shell_id"] = str(inv_num).strip()
         return df_active
 
     client_file = "clients.csv"
@@ -502,7 +503,7 @@ def render_admin_tracker():
                         inv_link = upload_system_pdf_to_drive(st.session_state["h_inv"], f"{invoice_num}_Commercial_Invoice.pdf", client_name, invoice_num)
                         df_update = load_log_data()
                         df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
-                        idx = df_update.index[df_update['Invoice No'].astype(str) == str(st.session_state["active_shell_id"])].tolist()[0]
+                        idx = df_update.index[df_update['Invoice No'].astype(str).str.strip() == str(st.session_state["active_shell_id"]).strip()].tolist()[0]
                         df_update.at[idx, "Commercial Invoice"] = inv_link
                         save_log_data(df_update)
                         st.success("✅ Commercial Invoice locked!")
@@ -519,7 +520,7 @@ def render_admin_tracker():
                         car_link = upload_system_pdf_to_drive(st.session_state["h_car"], f"{invoice_num}_CARICOM_Invoice.pdf", client_name, invoice_num)
                         df_update = load_log_data()
                         df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
-                        idx = df_update.index[df_update['Invoice No'].astype(str) == str(st.session_state["active_shell_id"])].tolist()[0]
+                        idx = df_update.index[df_update['Invoice No'].astype(str).str.strip() == str(st.session_state["active_shell_id"]).strip()].tolist()[0]
                         df_update.at[idx, "CARICOM Invoice"] = car_link
                         save_log_data(df_update)
                         st.success("✅ CARICOM Invoice locked!")
@@ -558,7 +559,7 @@ def render_admin_tracker():
                         pck_link = upload_system_pdf_to_drive(st.session_state["h_pck"], f"{invoice_num}_Sequential_Packing_List.pdf", client_name, invoice_num)
                         df_update = load_log_data()
                         df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
-                        idx = df_update.index[df_update['Invoice No'].astype(str) == str(st.session_state["active_shell_id"])].tolist()[0]
+                        idx = df_update.index[df_update['Invoice No'].astype(str).str.strip() == str(st.session_state["active_shell_id"]).strip()].tolist()[0]
                         df_update.at[idx, "Sequential Packing List"] = pck_link
                         save_log_data(df_update)
                         st.success("✅ Packing Manifest locked!")
@@ -570,11 +571,11 @@ def render_admin_tracker():
                 display_html_preview(st.session_state["h_dut"])
                 
                 if st.button("💾 Save Customs Summary Only", type="primary", use_container_width=True):
-                    with st.spinner("Locking Customs Summary PDF to Drive Vault..."):
+                    with st.spinner("Locking Official Customs Summary to Drive Vault..."):
                         dut_link = upload_system_pdf_to_drive(st.session_state["h_dut"], f"{invoice_num}_Official_Duties.pdf", client_name, invoice_num)
                         df_update = load_log_data()
                         df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
-                        idx = df_update.index[df_update['Invoice No'].astype(str) == str(st.session_state["active_shell_id"])].tolist()[0]
+                        idx = df_update.index[df_update['Invoice No'].astype(str).str.strip() == str(st.session_state["active_shell_id"]).strip()].tolist()[0]
                         df_update.at[idx, "Official Duties Assessment"] = dut_link
                         save_log_data(df_update)
                         st.success("✅ Customs Summary locked!")
@@ -594,7 +595,6 @@ with col_create:
             # Smart sequential generator based on INV format
             next_num = 1001
             if not df_current.empty and "Invoice No" in df_current.columns:
-                # Get only numeric parts for counting
                 valid_ids = df_current["Invoice No"].astype(str).tolist()
                 nums = [int(re.findall(r'\d+', x)[0]) for x in valid_ids if re.findall(r'\d+', x)]
                 if nums:
