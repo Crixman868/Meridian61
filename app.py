@@ -62,8 +62,9 @@ for folder in ["uploaded_docs", "logos", "signatures", "watermarks", "templates"
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1wUBZSnB7cJ2T5_iY5_POpfsNmZn0INGj08EdcLc7TsQ/edit?usp=sharing"
 ROOT_FOLDER_ID = "1CITSPAI-BoFeQQLLkmeoX2wkjunTbpGm"
 
+# Added Panama
 ALL_COUNTRIES = [
-    "", "USA", "China", "UK", "Canada", "Brazil", "Mexico", "Japan", "Germany", 
+    "", "USA", "China", "UK", "Canada", "Brazil", "Mexico", "Panama", "Japan", "Germany", 
     "India", "France", "Italy", "South Korea", "Spain", "Australia", "Taiwan", 
     "Netherlands", "Vietnam", "Malaysia", "Singapore", "South Africa", "UAE", 
     "Saudi Arabia", "Switzerland", "Sweden", "Poland", "Belgium", "Thailand", 
@@ -84,7 +85,7 @@ LOG_COLUMNS = [
 ]
 
 # ==========================================
-# 3. HELPER FUNCTIONS (PRISTINE BASE)
+# 3. HELPER FUNCTIONS
 # ==========================================
 def get_gspread_client():
     creds_dict = json.loads(st.secrets["google_api"]["credentials"])
@@ -105,7 +106,15 @@ def load_log_data():
         records = ws.get_all_records()
         if not records:
             return pd.DataFrame(columns=LOG_COLUMNS)
-        return pd.DataFrame(records)
+        
+        df = pd.DataFrame(records)
+        
+        # Bulletproofing: Force missing columns to exist so we NEVER get a KeyError
+        for col in LOG_COLUMNS:
+            if col not in df.columns:
+                df[col] = ""
+                
+        return df
     except Exception as e: 
         st.error(f"Failed to load data: {e}")
         return pd.DataFrame(columns=LOG_COLUMNS)
@@ -187,10 +196,10 @@ def get_eta_status(eta_date, shipment_status):
         return "✅ DELIVERED", "#00b050"
     try:
         days_diff = (eta_date - datetime.now().date()).days
-        if days_diff < 0: return "⚠️ Overdue", "#FF4500"
-        if 0 <= days_diff <= 5: return "🔴 Urgent", "#FF0000"
-        if 6 <= days_diff <= 14: return "🟡 Upcoming", "#FFD700"
-        return "🟢 On Track", "#008000"
+        if days_diff < 0: return "⚠️ OVERDUE", "#FF4500"
+        if 0 <= days_diff <= 7: return "🔴 URGENT", "#FF0000"
+        if 8 <= days_diff <= 14: return "🟡 APPROACHING", "#FFD700"
+        return "🟢 IN TRANSIT", "#008000"
     except: return "TBD", "#808080"
 
 def get_img_b64(path):
@@ -288,7 +297,7 @@ def render_master_log():
             inv_no = str(row.get('Invoice No', 'N/A'))
             client_name = str(row.get('Client Name', 'Unknown Client'))
             ship_status = str(row.get("Shipment Status", "Active"))
-            total_cartons = str(row.get("Total Cartons", "N/A"))
+            total_cartons = str(row.get("Total Cartons", "0"))
             
             raw_eta = row.get("ETA")
             timestamp = pd.to_datetime(raw_eta, errors='coerce')
@@ -369,10 +378,11 @@ def render_admin_tracker():
         return
 
     # Helper script to sync base metadata from Tracker to Log
+    # FIX APPLIED HERE: str(int(ctns)) forces text formatting, preventing PyArrow strict typing crash
     def sync_base_metadata_to_log(df_active, inv_num, c_name, ctns, date):
         idx = df_active.index[df_active['Invoice No'] == active_shell].tolist()[0]
         df_active.at[idx, "Client Name"] = str(c_name)
-        df_active.at[idx, "Total Cartons"] = int(ctns)
+        df_active.at[idx, "Total Cartons"] = str(int(ctns))
         df_active.at[idx, "ETA"] = str(date)
         
         if str(inv_num).strip() and str(inv_num) != active_shell:
