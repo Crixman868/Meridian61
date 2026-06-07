@@ -96,10 +96,10 @@ for folder in ["uploaded_docs", "logos", "signatures", "watermarks", "templates"
     if not os.path.exists(folder): os.makedirs(folder)
 
 # ==========================================
-# 2. CONSTANTS
+# 2. CONSTANTS (DEVELOPMENT SANDBOX WORKSPACE)
 # ==========================================
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1ipB1DaIdX_BS_0iSWRHMwHcP-wEpfu2pZzFT3nJtlho/edit?gid=0#gid=0"
-ROOT_FOLDER_ID = "19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1wUBZSnB7cJ2T5_iY5_POpfsNmZn0INGj08EdcLc7TsQ/edit?usp=sharing"
+ROOT_FOLDER_ID = "https://drive.google.com/drive/folders/1CITSPAI-BoFeQQLLkmeoX2wkjunTbpGm?usp=sharing"
 
 ALL_COUNTRIES = [
     "", "USA", "China", "UK", "Canada", "Brazil", "Mexico", "Japan", "Germany", 
