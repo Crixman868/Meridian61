@@ -71,23 +71,24 @@ SHEET_URL = "https://docs.google.com/spreadsheets/d/1wUBZSnB7cJ2T5_iY5_POpfsNmZn
 ROOT_FOLDER_ID = "1CITSPAI-BoFeQQLLkmeoX2wkjunTbpGm"
 
 ALL_COUNTRIES = [
-    "", "USA", "China", "UK", "Canada", "Brazil", "Mexico", "Japan", "Germany", 
+    "", "USA", "China", "UK", "Canada", "Brazil", "Mexico", "Panama", "Japan", "Germany", 
     "India", "France", "Italy", "South Korea", "Spain", "Australia", "Taiwan", 
     "Netherlands", "Vietnam", "Malaysia", "Singapore", "South Africa", "UAE", 
     "Saudi Arabia", "Switzerland", "Sweden", "Poland", "Belgium", "Thailand", 
     "Indonesia", "Turkey", "Philippines", "Ireland", "Other"
 ]
 
-# Exact layout sequence matching the staff muscle memory tracking flow
+# Exact layout sequence matching the staff muscle memory + full document 10-slot matrix
 ALL_LOG_COLUMNS = [
     "M61 ID", "TOTAL CTNS", "Status", "NALDO", "ETA", "BL#", "Container #", 
     "Client", "Origin", "Invoice#", "Shipper's Invoice", "Shipper's Packing list", 
     "Com Invoice", "Caricom invoice", "Packing List", "Duties Calculation", 
-    "Doc Status", "Notes"
+    "Doc Status", "Notes", "Tracker Document", "Other Documents", "Miscellaneous Supporting Doc"
 ]
 
 SYSTEM_DOCS = ["Com Invoice", "Caricom invoice", "Packing List", "Duties Calculation"]
-EXTERNAL_DOCS = ["Shipper's Invoice", "Shipper's Packing list"]
+EXTERNAL_DOCS = ["BL#", "Shipper's Invoice", "Shipper's Packing list", "Tracker Document", "Other Documents", "Miscellaneous Supporting Doc"]
+ALL_DOCS = SYSTEM_DOCS + EXTERNAL_DOCS
 
 # ==========================================
 # 3. HELPER FUNCTIONS (API & DATA)
@@ -133,6 +134,8 @@ def upload_system_pdf_to_drive(html_content, file_name, client_name, reference_i
     if not html_content: return "Pending Upload"
     try:
         drive = get_drive_service()
+        
+        # --- THE APOSTROPHE FIX ---
         safe_client = str(client_name if client_name else "Unassigned_Client").replace("'", "\\'")
         safe_ref = str(reference_id).replace("'", "\\'")
         
@@ -161,6 +164,8 @@ def upload_physical_file_to_drive(uploaded_file, file_name, client_name, referen
     if not uploaded_file: return None
     try:
         drive = get_drive_service()
+        
+        # --- THE APOSTROPHE FIX ---
         safe_client = str(client_name if client_name else "Unassigned_Client").replace("'", "\\'")
         safe_ref = str(reference_id).replace("'", "\\'")
         
@@ -315,13 +320,13 @@ def render_master_log():
                 
                 st.write("---")
                 st.markdown("#### Document Control Matrix")
-                grid = st.columns(4)
                 
-                all_slots = EXTERNAL_DOCS + SYSTEM_DOCS
+                # Dynamic grid layout for the 10 document slots (5 columns x 2 rows)
+                grid = st.columns(5)
                 upload_cache = {}
                 
-                for i, slot in enumerate(all_slots):
-                    with grid[i % 4]:
+                for i, slot in enumerate(ALL_DOCS):
+                    with grid[i % 5]:
                         st.markdown(f"**{slot}**")
                         file_link = str(row.get(slot, "")).strip()
                         
@@ -399,14 +404,14 @@ def render_admin_tracker():
         st.markdown("#### Dynamic Logistics Allocation Fields")
         cx1, cx2 = st.columns(2)
         with cx1:
-            invoice_num = st.text_input("Invoice Number", value="269698487")
-            invoice_date = st.text_input("Invoice Date", value="05-05-2026")
+            invoice_num = st.text_input("Invoice Number", value="")
+            invoice_date = st.text_input("Invoice Date", value=datetime.now().strftime("%d-%m-%Y"))
             bl_number = st.text_input("Bill of Lading (BL#)")
             payment_terms = st.selectbox("Terms", ["NET 90 Days", "NET 45 Days", "NET 30 Days"])
             special_indicator = st.selectbox("Shipment Type", ["Standard", "Express", "Maritime Direct"])
         with cx2:
-            freight_cost = st.number_input("Ocean Freight (USD)", value=2500.00)
-            container_total_ctns = st.number_input("Total Cartons", value=980)
+            freight_cost = st.number_input("Ocean Freight (USD)", value=0.00)
+            container_total_ctns = st.number_input("Total Cartons", value=0)
             exchange_rate = st.number_input("Exchange Rate", value=6.77967, format="%.5f")
             signatory_position = st.text_input("Signatory Position", value="Authorized Director")
             
@@ -514,7 +519,7 @@ def render_admin_tracker():
                         df_all = load_log_data()
                         row_index = df_all.index[df_all['M61 ID'].astype(str) == target_id].tolist()[0]
                         
-                        df_all.at[row_index, "TOTAL CTNS"] = int(container_total_ctns)
+                        df_all.at[row_index, "TOTAL CTNS"] = str(container_total_ctns)
                         df_all.at[row_index, "Invoice#"] = str(invoice_num)
                         df_all.at[row_index, "BL#"] = str(bl_number)
                         df_all.at[row_index, "Client"] = str(client_name)
@@ -558,14 +563,14 @@ with col_trigger:
             
             new_id_code = f"M61-{next_num}"
             
-            # Append complete baseline 18-column series array row dictionary definition
+            # Append complete baseline 21-column series array row dictionary definition
             blank_row = {col: "" for col in ALL_LOG_COLUMNS}
             blank_row["M61 ID"] = new_id_code
             blank_row["Status"] = "Active"
             blank_row["NALDO"] = "No"
             blank_row["Doc Status"] = "No"
             
-            for doc_slot in (SYSTEM_DOCS + EXTERNAL_DOCS):
+            for doc_slot in ALL_DOCS:
                 blank_row[doc_slot] = "Pending Upload"
                 
             df_new = pd.concat([df_current, pd.DataFrame([blank_row])], ignore_index=True)
@@ -580,15 +585,20 @@ with col_selector:
     if not df_dropdown_feed.empty:
         for _, r in df_dropdown_feed.iterrows():
             s_id = str(r.get("M61 ID", ""))
+            s_ctns = str(r.get("TOTAL CTNS", "")).strip()
             s_inv = str(r.get("Invoice#", "")).strip()
             s_cont = str(r.get("Container #", "")).strip()
             s_client = str(r.get("Client", "")).strip()
             
+            # Formatting the Smart CTNS Front-Loaded Label string
             label = f"{s_id}"
-            if s_client: label += f" | {s_client}"
+            if s_ctns: label += f" | CTNS: {s_ctns}"
+            if s_client: label += f" | Client: {s_client}"
             if s_inv: label += f" | Inv: {s_inv}"
             if s_cont: label += f" | Cont: {s_cont}"
-            if not s_inv and not s_cont: label += " (New Empty Shell)"
+            
+            if not s_ctns and not s_inv and not s_cont: 
+                label += " (New Empty Shell)"
             
             dropdown_options.append(label)
 
