@@ -59,8 +59,8 @@ for folder in ["uploaded_docs", "logos", "signatures", "watermarks", "templates"
 # ==========================================
 # 2. CONSTANTS & DATA SCHEMA
 # ==========================================
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1ipB1DaIdX_BS_0iSWRHMwHcP-wEpfu2pZzFT3nJtlho/edit?gid=0#gid=0"
-ROOT_FOLDER_ID = "19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1wUBZSnB7cJ2T5_iY5_POpfsNmZn0INGj08EdcLc7TsQ/edit?usp=sharing"
+ROOT_FOLDER_ID = "1CITSPAI-BoFeQQLLkmeoX2wkjunTbpGm"
 
 ALL_COUNTRIES = [
     "", "USA", "China", "UK", "Canada", "Brazil", "Mexico", "Japan", "Germany", 
