@@ -20,7 +20,7 @@ from weasyprint import HTML
 # ==========================================
 st.set_page_config(page_title="Meridian Logistics", page_icon="📦", layout="wide")
 
-COMPANY_LOGO_PATH = "company_logo.png" # Place your logo image in the main folder with this name
+COMPANY_LOGO_PATH = "company_logo.png" 
 
 st.markdown("""
 <style>
@@ -51,42 +51,11 @@ st.markdown("""
     }
 
     /* --- THE INVISIBLE TEXT FIX FOR MOBILE --- */
-    /* Forces all text inside the expanders to be dark, ignoring mobile dark mode */
     [data-testid="stExpander"] p, 
     [data-testid="stExpander"] h3, 
     [data-testid="stExpander"] h4, 
     [data-testid="stExpander"] h5 {
         color: #1e293b !important;
-    }
-
-    /* --- GATEKEEPER LOGIN CSS --- */
-    .login-wrapper {
-        max-width: 400px;
-        margin: 5vh auto 20px auto;
-        text-align: center;
-    }
-    [data-testid="stForm"] {
-        max-width: 400px;
-        margin: 0 auto;
-        padding: 2.5rem;
-        border-radius: 12px;
-        box-shadow: 0px 10px 30px rgba(0, 0, 0, 0.08);
-        background-color: #ffffff;
-        border: 1px solid #f1f5f9;
-    }
-    [data-testid="stFormSubmitButton"] button {
-        width: 100%;
-        background-color: #0f172a !important; /* Dark slate blue */
-        color: white !important;
-        font-weight: 600;
-        border-radius: 8px;
-        padding: 0.6rem;
-        transition: all 0.3s ease;
-        margin-top: 10px;
-    }
-    [data-testid="stFormSubmitButton"] button:hover {
-        background-color: #1e293b !important;
-        box-shadow: 0px 4px 10px rgba(15, 23, 42, 0.3);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -96,21 +65,29 @@ for folder in ["uploaded_docs", "logos", "signatures", "watermarks", "templates"
     if not os.path.exists(folder): os.makedirs(folder)
 
 # ==========================================
-# 2. CONSTANTS
+# 2. CONSTANTS (DEVELOPMENT SANDBOX WORKSPACE)
 # ==========================================
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1ipB1DaIdX_BS_0iSWRHMwHcP-wEpfu2pZzFT3nJtlho/edit?gid=0#gid=0"
-ROOT_FOLDER_ID = "19pHVBp63Y2j8y5BKPujV78rbwBVeYuBk"
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1wUBZSnB7cJ2T5_iY5_POpfsNmZn0INGj08EdcLc7TsQ/edit?usp=sharing"
+ROOT_FOLDER_ID = "1CITSPAI-BoFeQQLLkmeoX2wkjunTbpGm"
 
 ALL_COUNTRIES = [
-    "", "USA", "China", "UK", "Canada", "Brazil", "Mexico", "Japan", "Germany", 
+    "", "USA", "China", "UK", "Canada", "Brazil", "Mexico", "Panama", "Japan", "Germany", 
     "India", "France", "Italy", "South Korea", "Spain", "Australia", "Taiwan", 
     "Netherlands", "Vietnam", "Malaysia", "Singapore", "South Africa", "UAE", 
     "Saudi Arabia", "Switzerland", "Sweden", "Poland", "Belgium", "Thailand", 
     "Indonesia", "Turkey", "Philippines", "Ireland", "Other"
 ]
 
-SYSTEM_DOCS = ["Commercial Invoice", "CARICOM Invoice", "Sequential Packing List", "Official Duties Assessment"]
-EXTERNAL_DOCS = ["Bill of Lading Scan", "Original Invoice", "Original Packing List", "Tracker Document", "Other Documents", "Miscellaneous Supporting Doc"]
+# Exact layout sequence matching the staff muscle memory + full document 10-slot matrix
+ALL_LOG_COLUMNS = [
+    "M61 ID", "TOTAL CTNS", "Status", "NALDO", "ETA", "BL#", "Container #", 
+    "Client", "Origin", "Invoice#", "Shipper's Invoice", "Shipper's Packing list", 
+    "Com Invoice", "Caricom invoice", "Packing List", "Duties Calculation", 
+    "Doc Status", "Notes", "Tracker Document", "Other Documents", "Miscellaneous Supporting Doc"
+]
+
+SYSTEM_DOCS = ["Com Invoice", "Caricom invoice", "Packing List", "Duties Calculation"]
+EXTERNAL_DOCS = ["BL#", "Shipper's Invoice", "Shipper's Packing list", "Tracker Document", "Other Documents", "Miscellaneous Supporting Doc"]
 ALL_DOCS = SYSTEM_DOCS + EXTERNAL_DOCS
 
 # ==========================================
@@ -131,35 +108,42 @@ def get_drive_service():
 
 def load_log_data():
     try: 
-        return pd.DataFrame(get_gspread_client().open_by_url(SHEET_URL).sheet1.get_all_records())
+        ws = get_gspread_client().open_by_url(SHEET_URL).sheet1
+        all_records = ws.get_all_records()
+        if not all_records:
+            return pd.DataFrame(columns=ALL_LOG_COLUMNS)
+        return pd.DataFrame(all_records)
     except Exception as e: 
-        st.error(f"Failed to load data: {e}")
-        return pd.DataFrame()
+        st.error(f"Failed to load data from Sandbox: {e}")
+        return pd.DataFrame(columns=ALL_LOG_COLUMNS)
 
 def save_log_data(df):
     try:
         ws = get_gspread_client().open_by_url(SHEET_URL).sheet1
         ws.clear()
-        ws.update([df.fillna("").columns.values.tolist()] + df.fillna("").values.tolist())
+        
+        # Ensure correct formatting structure matching explicit sequential schema headers
+        df_reordered = df.reindex(columns=ALL_LOG_COLUMNS).fillna("")
+        ws.update([df_reordered.columns.values.tolist()] + df_reordered.values.tolist())
         return True
     except Exception as e:
         st.error(f"Failed to sync with Google Sheets: {e}")
         return False
 
-def upload_system_pdf_to_drive(html_content, file_name, client_name, invoice_no):
+def upload_system_pdf_to_drive(html_content, file_name, client_name, reference_id):
     if not html_content: return "Pending Upload"
     try:
         drive = get_drive_service()
         
         # --- THE APOSTROPHE FIX ---
-        safe_client_name = str(client_name).replace("'", "\\'")
-        safe_invoice_no = str(invoice_no).replace("'", "\\'")
+        safe_client = str(client_name if client_name else "Unassigned_Client").replace("'", "\\'")
+        safe_ref = str(reference_id).replace("'", "\\'")
         
-        folders = drive.files().list(q=f"name='{safe_client_name}' and '{ROOT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
-        client_folder_id = folders[0]['id'] if folders else drive.files().create(body={"name": client_name, "parents": [ROOT_FOLDER_ID], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
+        folders = drive.files().list(q=f"name='{safe_client}' and '{ROOT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
+        client_folder_id = folders[0]['id'] if folders else drive.files().create(body={"name": safe_client, "parents": [ROOT_FOLDER_ID], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
         
-        inv_folders = drive.files().list(q=f"name='{safe_invoice_no}' and '{client_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
-        inv_folder_id = inv_folders[0]['id'] if inv_folders else drive.files().create(body={"name": str(invoice_no), "parents": [client_folder_id], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
+        inv_folders = drive.files().list(q=f"name='{safe_ref}' and '{client_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
+        inv_folder_id = inv_folders[0]['id'] if inv_folders else drive.files().create(body={"name": safe_ref, "parents": [client_folder_id], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
         
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_pdf:
             temp_pdf_path = temp_pdf.name
@@ -176,20 +160,20 @@ def upload_system_pdf_to_drive(html_content, file_name, client_name, invoice_no)
         st.error(f"PDF Engine Error for {file_name}: {e}")
         return "Upload Failed"
 
-def upload_physical_file_to_drive(uploaded_file, file_name, client_name, invoice_no):
+def upload_physical_file_to_drive(uploaded_file, file_name, client_name, reference_id):
     if not uploaded_file: return None
     try:
         drive = get_drive_service()
         
         # --- THE APOSTROPHE FIX ---
-        safe_client_name = str(client_name).replace("'", "\\'")
-        safe_invoice_no = str(invoice_no).replace("'", "\\'")
+        safe_client = str(client_name if client_name else "Unassigned_Client").replace("'", "\\'")
+        safe_ref = str(reference_id).replace("'", "\\'")
         
-        folders = drive.files().list(q=f"name='{safe_client_name}' and '{ROOT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
-        client_folder_id = folders[0]['id'] if folders else drive.files().create(body={"name": client_name, "parents": [ROOT_FOLDER_ID], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
+        folders = drive.files().list(q=f"name='{safe_client}' and '{ROOT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
+        client_folder_id = folders[0]['id'] if folders else drive.files().create(body={"name": safe_client, "parents": [ROOT_FOLDER_ID], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
         
-        inv_folders = drive.files().list(q=f"name='{safe_invoice_no}' and '{client_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
-        inv_folder_id = inv_folders[0]['id'] if inv_folders else drive.files().create(body={"name": str(invoice_no), "parents": [client_folder_id], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
+        inv_folders = drive.files().list(q=f"name='{safe_ref}' and '{client_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", fields="files(id, name)").execute().get('files', [])
+        inv_folder_id = inv_folders[0]['id'] if inv_folders else drive.files().create(body={"name": safe_ref, "parents": [client_folder_id], "mimeType": "application/vnd.google-apps.folder"}).execute()['id']
         
         file_ext = os.path.splitext(uploaded_file.name)[1]
         with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
@@ -246,14 +230,12 @@ def save_supplier_mapping(supplier, desc, qty, price):
 
 def generate_html_document(title, inv_no, date, client, c_addr, supplier, s_profile, bl, total_ctns, df, total_val, freight=None, additional_notes="", payment_terms="", signatory_position="", is_packing=False, is_caricom=False, is_duties=False, duty_data=None):
     logo_path = get_img_b64(f"logos/{s_profile.get('Name', '')}_logo.png")
-    sig_path = get_img_b64(f"signatures/{s_profile.get('Name', '')}_sig.png")
-
+    
     if is_packing:
         table_rows = ""
         for idx, row in df.iterrows():
             table_rows += f'<tr><td style="padding:10px; border:1px solid #ccc;">{row.get("SPECIFICATION OF COMMODITIES","N/A")}</td><td style="padding:10px; border:1px solid #ccc; text-align:center;">{row.get("CTNS NOS","N/A")}</td><td style="padding:10px; border:1px solid #ccc; text-align:center;">{row.get("TOTAL CTNS",0)}</td><td style="padding:10px; border:1px solid #ccc; text-align:right;">{int(row.get("QUANTITY",0)):,}</td></tr>'
         img_tag = f'<img src="{logo_path}" height="50">' if logo_path else ''
-        
         rendered_html = f'<html><body><table width="100%"><tr><td>{img_tag}</td><td align="right"><h2>{title}</h2></td></tr></table><p><b>Exporter:</b> {supplier}<br><b>Consignee:</b> {client}<br>{c_addr}</p><table border="1" width="100%" cellspacing="0" cellpadding="5"><thead><tr bgcolor="#f7f7f7"><th>Description</th><th>Carton Nos</th><th>Total Ctns</th><th>Qty</th></tr></thead><tbody>{table_rows}</tbody></table><br><br></body></html>'
     
     elif is_duties:
@@ -276,7 +258,7 @@ def generate_html_document(title, inv_no, date, client, c_addr, supplier, s_prof
             total = f"{row.get('Total Foreign (USD)', ''):.2f}" if pd.notna(row.get('Total Foreign (USD)')) and row.get('Total Foreign (USD)') != "" else ""
             items.append({"Description": desc, "Qty": qty, "UnitPrice": price, "Total": total})
             
-        rendered_html = template.render({"title": title, "inv_no": inv_no, "date": date, "client_name": client, "client_address": c_addr, "supplier_name": supplier, "supplier_address": s_profile.get("Address", "Main Office Hub"), "bl": bl, "total_ctns": total_ctns, "payment_terms": payment_terms, "additional_notes": additional_notes, "is_caricom": is_caricom, "primary_hex": s_profile.get("PrimaryHex", "#0A2240"), "logo_path": logo_path, "sig_path": sig_path, "signatory_position": signatory_position, "subtotal": f"{total_val:,.2f}", "freight": (f"{freight:,.2f}" if freight else None), "grand_total": f"{(total_val + (freight or 0)):,.2f}", "items": items})
+        rendered_html = template.render({"title": title, "inv_no": inv_no, "date": date, "client_name": client, "client_address": c_addr, "supplier_name": supplier, "supplier_address": s_profile.get("Address", "Main Office Hub"), "bl": bl, "total_ctns": total_ctns, "payment_terms": payment_terms, "additional_notes": additional_notes, "is_caricom": is_caricom, "primary_hex": s_profile.get("PrimaryHex", "#0A2240"), "logo_path": logo_path, "subtotal": f"{total_val:,.2f}", "freight": (f"{freight:,.2f}" if freight else None), "grand_total": f"{(total_val + (freight or 0)):,.2f}", "items": items})
         rendered_html = re.sub(r'>\$\s*<', '><', rendered_html)
 
     return rendered_html
@@ -299,24 +281,23 @@ def display_html_preview(raw_html):
 
 
 # ==========================================
-# 4. APP VIEWS (THE "PAGES")
+# 4. APP VIEWS & CONSOLE LAYOUT
 # ==========================================
 
 def render_master_log():
-    st.title("🗄️ Master Log: Logistics Control Tower")
-    is_admin = (st.session_state.get("role") == "admin")
-
+    st.subheader("🗄️ System Workspace Overview")
     df = load_log_data()
 
     if df.empty:
-        st.warning("No data found in the Master Log.")
+        st.info("No active logs recorded in this workspace yet.")
     else:
         for idx, row in df.iterrows():
-            inv_no = str(row.get('Invoice No', 'N/A'))
-            client_name = str(row.get('Client Name', 'Unknown Client'))
-            ship_status = str(row.get("Shipment Status", "Active"))
-            
-            total_cartons = str(row.get("Total Cartons", "N/A"))
+            m61_id = str(row.get('M61 ID', 'N/A'))
+            client_name = str(row.get('Client', ''))
+            ship_status = str(row.get("Status", "Active"))
+            total_cartons = str(row.get("TOTAL CTNS", ""))
+            inv_no = str(row.get("Invoice#", ""))
+            container_no = str(row.get("Container #", ""))
             
             raw_eta = row.get("ETA")
             timestamp = pd.to_datetime(raw_eta, errors='coerce')
@@ -326,39 +307,28 @@ def render_master_log():
             naldo_val = str(row.get("NALDO", "No")).strip().upper()
             naldo_display = f"🔴 NALDO: YES" if naldo_val == "YES" else f"⚪ NALDO: NO"
             
-            # Shopfloor header layout
-            header_text = (f"📦 TOTAL CTNS: {total_cartons} | {status_label} | ETA: {current_date} | "
-                           f"Client: {client_name} | Origin: {row.get('Country of Origin', 'N/A')} | "
-                           f"Lodged: {row.get('Lodged Status', 'N/A')} | {naldo_display} | INV: {inv_no}")
+            header_text = f"⚙️ {m61_id} | CTNS: {total_cartons if total_cartons else '0'} | {status_label} | Client: {client_name if client_name else 'Unassigned'} | Inv: {inv_no if inv_no else 'Pending'} | Cont: {container_no if container_no else 'Pending'} | {naldo_display}"
 
             with st.expander(header_text):
                 col1, col2, col3, col4, col5, col6 = st.columns(6)
-                
-                if is_admin:
-                    with col1: new_cont = st.text_input("Container #", value=str(row.get("Container #", "")), key=f"cont_{idx}")
-                    with col2: new_orig = st.selectbox("Country of Origin", ALL_COUNTRIES, index=ALL_COUNTRIES.index(row.get("Country of Origin", "")) if row.get("Country of Origin", "") in ALL_COUNTRIES else 0, key=f"orig_{idx}")
-                    with col3: new_eta = st.date_input("ETA", value=current_date, key=f"eta_{idx}")
-                    with col4: new_lodg = st.radio("Lodged", ["Yes", "No"], index=0 if row.get("Lodged Status") == "Yes" else 1, horizontal=True, key=f"lodged_{idx}")
-                    with col5: new_stat = st.selectbox("Shipment Status", ["Active", "Delivered"], index=0 if ship_status != "Delivered" else 1, key=f"stat_{idx}")
-                    with col6: new_naldo = st.radio("NALDO Code", ["Yes", "No"], index=0 if naldo_val == "YES" else 1, horizontal=True, key=f"naldo_{idx}")
-                else:
-                    with col1: st.markdown(f"**Container #:**<br>{row.get('Container #', 'N/A')}", unsafe_allow_html=True)
-                    with col2: st.markdown(f"**Origin:**<br>{row.get('Country of Origin', 'N/A')}", unsafe_allow_html=True)
-                    with col3: st.markdown(f"**ETA:**<br>{current_date}", unsafe_allow_html=True)
-                    with col4: st.markdown(f"**Lodged:**<br>{row.get('Lodged Status', 'No')}", unsafe_allow_html=True)
-                    with col5: st.markdown(f"**Status:**<br>{ship_status}", unsafe_allow_html=True)
-                    with col6: st.markdown(f"**NALDO Code:**<br>{'Yes' if naldo_val == 'YES' else 'No'}", unsafe_allow_html=True)
+                with col1: new_cont = st.text_input("Container #", value=container_no, key=f"cont_{idx}")
+                with col2: new_orig = st.selectbox("Country of Origin", ALL_COUNTRIES, index=ALL_COUNTRIES.index(row.get("Origin", "")) if row.get("Origin", "") in ALL_COUNTRIES else 0, key=f"orig_{idx}")
+                with col3: new_eta = st.date_input("ETA", value=current_date, key=f"eta_{idx}")
+                with col4: new_lodg = st.radio("Doc Status", ["Yes", "No"], index=0 if row.get("Doc Status") == "Yes" else 1, horizontal=True, key=f"lodged_{idx}")
+                with col5: new_stat = st.selectbox("Status", ["Active", "Delivered"], index=0 if ship_status != "Delivered" else 1, key=f"stat_{idx}")
+                with col6: new_naldo = st.radio("NALDO Override", ["Yes", "No"], index=0 if naldo_val == "YES" else 1, horizontal=True, key=f"naldo_{idx}")
                 
                 st.write("---")
-                st.subheader("Document Vault (10-Slot Matrix)")
+                st.markdown("#### Document Control Matrix")
                 
+                # Dynamic grid layout for the 10 document slots (5 columns x 2 rows)
                 grid = st.columns(5)
-                upload_cache = {} 
-
+                upload_cache = {}
+                
                 for i, slot in enumerate(ALL_DOCS):
                     with grid[i % 5]:
                         st.markdown(f"**{slot}**")
-                        file_link = str(row.get(slot, ""))
+                        file_link = str(row.get(slot, "")).strip()
                         
                         if file_link.startswith("http"):
                             clean_link = file_link
@@ -370,32 +340,33 @@ def render_master_log():
                         else:
                             st.button("Pending Upload", disabled=True, key=f"pend_{idx}_{i}", use_container_width=True)
                         
-                        if is_admin and slot in EXTERNAL_DOCS:
-                            uploaded_file = st.file_uploader(f"Upload {slot}", key=f"up_{idx}_{i}", label_visibility="collapsed")
+                        if slot in EXTERNAL_DOCS:
+                            uploaded_file = st.file_uploader(f"Replace {slot}", key=f"up_{idx}_{i}", label_visibility="collapsed")
                             if uploaded_file:
                                 upload_cache[slot] = uploaded_file
                 
-                if is_admin:
-                    if st.button("💾 Save Shipment Updates", key=f"save_{idx}", type="primary"):
-                        with st.spinner("Processing updates..."):
-                            df_update = load_log_data()
-                            row_index = df_update.index[df_update['Invoice No'].astype(str) == inv_no].tolist()[0]
-                            df_update.at[row_index, "Container #"] = new_cont
-                            df_update.at[row_index, "Country of Origin"] = new_orig
-                            df_update.at[row_index, "ETA"] = str(new_eta)
-                            df_update.at[row_index, "Lodged Status"] = new_lodg
-                            df_update.at[row_index, "Shipment Status"] = new_stat
-                            df_update.at[row_index, "NALDO"] = new_naldo
-                            for slot_name, up_file in upload_cache.items():
-                                doc_filename = f"{inv_no}_{slot_name.replace(' ', '_')}.pdf"
-                                new_link = upload_physical_file_to_drive(up_file, doc_filename, client_name, inv_no)
-                                if new_link: df_update.at[row_index, slot_name] = new_link
-                            if save_log_data(df_update):
-                                st.success("✅ Updates saved!")
-                                st.rerun()
+                if st.button("💾 Save Shipment Updates", key=f"save_{idx}", type="primary"):
+                    with st.spinner("Processing structural workspace records..."):
+                        df_update = load_log_data()
+                        row_index = df_update.index[df_update['M61 ID'].astype(str) == m61_id].tolist()[0]
+                        df_update.at[row_index, "Container #"] = new_cont
+                        df_update.at[row_index, "Origin"] = new_orig
+                        df_update.at[row_index, "ETA"] = str(new_eta)
+                        df_update.at[row_index, "Doc Status"] = new_lodg
+                        df_update.at[row_index, "Status"] = new_stat
+                        df_update.at[row_index, "NALDO"] = new_naldo
+                        
+                        for slot_name, up_file in upload_cache.items():
+                            doc_filename = f"{m61_id}_{slot_name.replace(' ', '_')}.pdf"
+                            new_link = upload_physical_file_to_drive(up_file, doc_filename, client_name, m61_id)
+                            if new_link: df_update.at[row_index, slot_name] = new_link
+                            
+                        if save_log_data(df_update):
+                            st.success("✅ Log tracking entries synchronized!")
+                            st.rerun()
 
 def render_admin_tracker():
-    st.title("📦 Command Console: Master Tracker")
+    st.subheader("⚙️ Active File Processor Matrix")
     
     client_file = "clients.csv"
     supplier_file = "suppliers.csv"
@@ -406,7 +377,7 @@ def render_admin_tracker():
     col1, col2 = st.columns([1, 1.3])
 
     with col1:
-        st.subheader("Data Intake & Matrix Mapping")
+        st.subheader("Data Intake Configuration")
         client_name = st.selectbox("Client Workspace", client_options)
         supplier_name = st.selectbox("Supplier Profile", supplier_options)
         
@@ -430,23 +401,23 @@ def render_admin_tracker():
                     st.success("Matrix Mapped!")
 
         st.write("---")
-        st.markdown("#### Logistics Manifest Fields")
+        st.markdown("#### Dynamic Logistics Allocation Fields")
         cx1, cx2 = st.columns(2)
         with cx1:
-            invoice_num = st.text_input("Invoice Number", value="269698487")
-            invoice_date = st.text_input("Invoice Date", value="05-05-2026")
+            invoice_num = st.text_input("Invoice Number", value="")
+            invoice_date = st.text_input("Invoice Date", value=datetime.now().strftime("%d-%m-%Y"))
             bl_number = st.text_input("Bill of Lading (BL#)")
             payment_terms = st.selectbox("Terms", ["NET 90 Days", "NET 45 Days", "NET 30 Days"])
             special_indicator = st.selectbox("Shipment Type", ["Standard", "Express", "Maritime Direct"])
         with cx2:
-            freight_cost = st.number_input("Ocean Freight (USD)", value=2500.00)
-            container_total_ctns = st.number_input("Total Cartons", value=980)
+            freight_cost = st.number_input("Ocean Freight (USD)", value=0.00)
+            container_total_ctns = st.number_input("Total Cartons", value=0)
             exchange_rate = st.number_input("Exchange Rate", value=6.77967, format="%.5f")
             signatory_position = st.text_input("Signatory Position", value="Authorized Director")
             
         additional_notes = st.text_area("Cargo Notes", "Assorted cargo bulk manifest")
 
-        st.markdown("#### Tariff Tax Parameters")
+        st.markdown("#### Tariff Parameters")
         tx1, tx2 = st.columns(2)
         with tx1: duty_percentage = st.number_input("Duty Rate (%)", value=20.0)
         with tx1: vat_percentage = st.number_input("VAT Rate (%)", value=12.5)
@@ -454,7 +425,7 @@ def render_admin_tracker():
         with tx2: uf_fee = st.number_input("UF Fee (TTD)", value=80.00)
 
     with col2:
-        st.subheader("Automated Document Delivery Streams")
+        st.subheader("Document Sync Operations")
         if uploaded_file and map_description != "-- Select --" and map_qty != "-- Select --" and map_price != "-- Select --":
             df_clean = df_raw[[map_description, map_qty, map_price]].dropna().copy()
             df_clean.columns = ["Description", "Qty", "UnitPrice"]
@@ -529,9 +500,10 @@ def render_admin_tracker():
                     display_html_preview(st.session_state["h_dut"])
 
         st.write("---")
-        if st.button("💾 Commit Data & Send to Master Log", type="primary", width="stretch"):
-            if client_name != "Select a Client..." and supplier_name != "Select a Supplier...":
-                with st.spinner("Locking PDFs and Syncing to Master Log..."):
+        if st.button("💾 Compile & Overwrite Selected Workspace Docs", type="primary", width="stretch"):
+            if "target_m61_id" in st.session_state and st.session_state["target_m61_id"] != "-- Choose Active Shell --":
+                target_id = st.session_state["target_m61_id"]
+                with st.spinner("Compiling structural system documents to Drive Vault..."):
                     try:
                         auto_inv_html = generate_html_document("COMMERCIAL INVOICE", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_clean, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position)
                         df_caricom_auto = pd.DataFrame([{"Description": f"{additional_notes} as per invoice # {invoice_num}, dated: {invoice_date}", "Qty": "", "UnitPrice": "", "Total Foreign (USD)": ""}])
@@ -539,123 +511,123 @@ def render_admin_tracker():
                         auto_pck_html = generate_html_document("PACKING LIST MANIFEST", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, st.session_state.get("df_p_compiled", df_clean), subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_packing=True)
                         auto_dut_html = generate_html_document("OFFICIAL DUTIES ASSESSMENT", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, st.session_state.get("df_p_compiled", df_clean), subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_duties=True, duty_data=duty_dict)
 
-                        inv_link = upload_system_pdf_to_drive(auto_inv_html, f"{invoice_num}_Commercial_Invoice.pdf", client_name, invoice_num)
-                        car_link = upload_system_pdf_to_drive(auto_car_html, f"{invoice_num}_CARICOM_Invoice.pdf", client_name, invoice_num)
-                        pck_link = upload_system_pdf_to_drive(auto_pck_html, f"{invoice_num}_Sequential_Packing_List.pdf", client_name, invoice_num)
-                        dut_link = upload_system_pdf_to_drive(auto_dut_html, f"{invoice_num}_Official_Duties.pdf", client_name, invoice_num)
+                        inv_link = upload_system_pdf_to_drive(auto_inv_html, f"{target_id}_Commercial_Invoice.pdf", client_name, target_id)
+                        car_link = upload_system_pdf_to_drive(auto_car_html, f"{target_id}_CARICOM_Invoice.pdf", client_name, target_id)
+                        pck_link = upload_system_pdf_to_drive(auto_pck_html, f"{target_id}_Sequential_Packing_List.pdf", client_name, target_id)
+                        dut_link = upload_system_pdf_to_drive(auto_dut_html, f"{target_id}_Official_Duties.pdf", client_name, target_id)
 
                         df_all = load_log_data()
+                        row_index = df_all.index[df_all['M61 ID'].astype(str) == target_id].tolist()[0]
                         
-                        new_row = {
-                            "Invoice No": str(invoice_num), 
-                            "Client Name": str(client_name),
-                            "Container #": "", 
-                            "Country of Origin": "", 
-                            "ETA": str(invoice_date), 
-                            "Lodged Status": "No",
-                            "Shipment Status": "Active",
-                            "NALDO": "No",
-                            "Total Cartons": int(container_total_ctns), 
-                            "Commercial Invoice": inv_link,
-                            "CARICOM Invoice": car_link, 
-                            "Sequential Packing List": pck_link, 
-                            "Official Duties Assessment": dut_link,
-                            "Bill of Lading Scan": "Pending Upload",
-                            "Original Invoice": "Pending Upload",
-                            "Original Packing List": "Pending Upload",
-                            "Tracker Document": "Pending Upload",
-                            "Other Documents": "Pending Upload",
-                            "Miscellaneous Supporting Doc": "Pending Upload"
-                        }
+                        df_all.at[row_index, "TOTAL CTNS"] = str(container_total_ctns)
+                        df_all.at[row_index, "Invoice#"] = str(invoice_num)
+                        df_all.at[row_index, "BL#"] = str(bl_number)
+                        df_all.at[row_index, "Client"] = str(client_name)
+                        df_all.at[row_index, "Com Invoice"] = inv_link
+                        df_all.at[row_index, "Caricom invoice"] = car_link
+                        df_all.at[row_index, "Packing List"] = pck_link
+                        df_all.at[row_index, "Duties Calculation"] = dut_link
+                        df_all.at[row_index, "Notes"] = str(additional_notes)
                         
-                        if not df_all.empty and "Invoice No" in df_all.columns:
-                            df_all = pd.concat([df_all[df_all["Invoice No"].astype(str) != str(invoice_num)], pd.DataFrame([new_row])], ignore_index=True)
-                        else:
-                            df_all = pd.DataFrame([new_row])
-                            
                         save_log_data(df_all)
-                        st.success("🎉 Shipment data locked and synced! Exact Replica PDFs are now available in the Vault.")
+                        st.success(f"🎉 System Documents mapped and compiled onto Workspace Shell {target_id}!")
                         st.balloons()
                     except Exception as sheet_err:
                         st.error(f"Integration Error: {sheet_err}")
             else:
-                st.warning("⚠️ Workspace Validation Error: Ensure client and supplier selections are active.")
+                st.warning("⚠️ Workspace Target Validation Error: Please select an active shell mapping workspace dropdown anchor first.")
+
 
 # ==========================================
-# 5. THE GATEKEEPER & ROUTER (Execution)
+# 5. COMMAND PIPELINE INTERFACE
 # ==========================================
 
-# Hybrid Persistence Check: If URL says we are logged in, restore the session.
-if st.query_params.get("auth") == "yes":
-    st.session_state["logged_in"] = True
-    st.session_state["role"] = st.query_params.get("role")
+st.title("🚢 Meridian Command Console (Unified Control Center)")
 
-# Initialize base state
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
-    st.session_state["role"] = None
+# --- INTEGRATED ASYNCHRONOUS "SEED" SYSTEM TRIGGER CONTROLLER ---
+st.markdown("### ⚡ Quick Intake Pipeline")
+col_trigger, col_selector = st.columns([1, 1.5])
 
-# If not authenticated, show the beautiful login form
-if not st.session_state["logged_in"]:
+with col_trigger:
+    if st.button("➕ Create Empty Shipment Shell", type="primary", use_container_width=True):
+        with st.spinner("Initializing serial master workspace shell..."):
+            df_current = load_log_data()
+            
+            # Smart serial index look-up logic
+            next_num = 1001
+            if not df_current.empty and "M61 ID" in df_current.columns:
+                valid_ids = df_current["M61 ID"].astype(str).tolist()
+                nums = [int(re.findall(r'\d+', x)[0]) for x in valid_ids if re.findall(r'\d+', x)]
+                if nums:
+                    next_num = max(nums) + 1
+            
+            new_id_code = f"M61-{next_num}"
+            
+            # Append complete baseline 21-column series array row dictionary definition
+            blank_row = {col: "" for col in ALL_LOG_COLUMNS}
+            blank_row["M61 ID"] = new_id_code
+            blank_row["Status"] = "Active"
+            blank_row["NALDO"] = "No"
+            blank_row["Doc Status"] = "No"
+            
+            for doc_slot in ALL_DOCS:
+                blank_row[doc_slot] = "Pending Upload"
+                
+            df_new = pd.concat([df_current, pd.DataFrame([blank_row])], ignore_index=True)
+            if save_log_data(df_new):
+                st.session_state["target_m61_id"] = new_id_code
+                st.toast(f"Shell {new_id_code} successfully generated!", icon="✅")
+
+with col_selector:
+    df_dropdown_feed = load_log_data()
+    dropdown_options = ["-- Choose Active Shell --"]
     
-    # Create 3 columns: Left spacer, Center column (where the login goes), Right spacer
-    # The [1, 1.2, 1] ratio makes the middle column perfectly sized for a login box
-    left_spacer, center_col, right_spacer = st.columns([1, 1.2, 1])
+    if not df_dropdown_feed.empty:
+        for _, r in df_dropdown_feed.iterrows():
+            s_id = str(r.get("M61 ID", ""))
+            s_ctns = str(r.get("TOTAL CTNS", "")).strip()
+            s_inv = str(r.get("Invoice#", "")).strip()
+            s_cont = str(r.get("Container #", "")).strip()
+            s_client = str(r.get("Client", "")).strip()
+            
+            # Formatting the Smart CTNS Front-Loaded Label string
+            label = f"{s_id}"
+            if s_ctns: label += f" | CTNS: {s_ctns}"
+            if s_client: label += f" | Client: {s_client}"
+            if s_inv: label += f" | Inv: {s_inv}"
+            if s_cont: label += f" | Cont: {s_cont}"
+            
+            if not s_ctns and not s_inv and not s_cont: 
+                label += " (New Empty Shell)"
+            
+            dropdown_options.append(label)
+
+    # Determine dynamic state index tracking focus selector anchor point
+    current_target = st.session_state.get("target_m61_id", "-- Choose Active Shell --")
+    matching_indices = [i for i, opt in enumerate(dropdown_options) if opt.startswith(str(current_target))]
+    default_sel_idx = matching_indices[0] if matching_indices else 0
+
+    selected_option = st.selectbox(
+        "Select Active Shipment Workspace Anchor", 
+        dropdown_options, 
+        index=default_sel_idx, 
+        label_visibility="collapsed"
+    )
     
-    with center_col:
-        # 1. Load the Logo (Force centered via inline CSS)
-        logo_b64 = get_img_b64(COMPANY_LOGO_PATH)
-        if logo_b64:
-            st.markdown(f'<div style="text-align: center;"><img src="{logo_b64}" style="max-height: 160px; margin-bottom: 10px;"></div>', unsafe_allow_html=True)
-        else:
-            st.markdown("<h2 style='text-align: center; color: #1e293b; margin-bottom: 0px;'>🚢 Majestic Freight</h2>", unsafe_allow_html=True)
-        
-        st.markdown("<p style='text-align: center; color: #64748b; margin-bottom: 25px;'>Secure Gatekeeper Authorization</p>", unsafe_allow_html=True)
-        
-        # 2. Render the styled form
-        with st.form("login"):
-            username = st.text_input("Username").strip().lower()
-            password = st.text_input("Password", type="password")
-            if st.form_submit_button("Access System"):
-                users = st.secrets.get("users", {})
-                if username in users and users[username].get("password") == password:
-                    # Set Session State
-                    role = users[username].get("role")
-                    st.session_state["logged_in"] = True
-                    st.session_state["role"] = role
-                    
-                    # Set URL Parameters for Mobile "Background Tab" Persistence
-                    st.query_params["auth"] = "yes"
-                    st.query_params["role"] = role
-                    
-                    st.rerun()
-                else:
-                    st.error("Invalid credentials.")
-else:
-    # --- The user is Authenticated ---
-    is_admin = (st.session_state.get("role") == "admin")
-    
-    # 1. Setup the Sidebar Menu
-    st.sidebar.title(f"User: {str(st.session_state.get('role')).capitalize()}")
-    
-    # Restrict options based on role
-    if is_admin:
-        nav_options = ["📋 Master Log", "📦 Master Tracker"]
+    if selected_option != "-- Choose Active Shell --":
+        st.session_state["target_m61_id"] = selected_option.split(" ")[0]
     else:
-        nav_options = ["📋 Master Log"]
-        
-    nav_selection = st.sidebar.radio("Navigation", nav_options)
-    
-    # 2. Setup the Logout Button
-    st.sidebar.write("---")
-    if st.sidebar.button("Logout", type="primary"):
-        st.query_params.clear()
-        st.session_state["logged_in"] = False
-        st.session_state["role"] = None
-        st.rerun()
+        st.session_state["target_m61_id"] = "-- Choose Active Shell --"
 
-    # 3. Route to the correct view function
-    if nav_selection == "📋 Master Log":
-        render_master_log()
-    elif nav_selection == "📦 Master Tracker":
+st.write("---")
+
+# --- NAVIGATION TABS FLOW ---
+nav_selection = st.radio("Workspace Directory Modules", ["📋 Master Dashboard Workstation", "📦 File Template Processor Matrix"], horizontal=True, label_visibility="collapsed")
+
+if nav_selection == "📋 Master Dashboard Workstation":
+    render_master_log()
+elif nav_selection == "📦 File Template Processor Matrix":
+    if st.session_state.get("target_m61_id", "-- Choose Active Shell --") == "-- Choose Active Shell --":
+        st.warning("⚠️ Access Restriction: Please choose an active tracking workspace shell anchor dropdown selection at the top header area to utilize file processor engines.")
+    else:
         render_admin_tracker()
