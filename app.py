@@ -379,8 +379,8 @@ def render_admin_tracker():
         st.warning("⚠️ Access Restriction: Please create or select an Active Workspace Shell from the top menu to enable data intake.")
         return
 
-    # Check-Before-You-Sync logic prevents IndexError/Crash
     def sync_base_metadata_to_log(df_active, inv_num, c_name, ctns, date):
+        # Match against current Active Shell ID
         matches = df_active.index[df_active['Invoice No'].astype(str) == str(active_shell)].tolist()
         
         if matches:
@@ -388,10 +388,12 @@ def render_admin_tracker():
             df_active.at[idx, "Client Name"] = str(c_name)
             df_active.at[idx, "Total Cartons"] = str(int(ctns))
             df_active.at[idx, "ETA"] = str(date)
+            # Update the Invoice ID if it changed
             if str(inv_num).strip() and str(inv_num) != active_shell:
                 df_active.at[idx, "Invoice No"] = str(inv_num)
                 st.session_state["active_shell_id"] = str(inv_num)
         else:
+            # If not found (e.g. rename happened), try to find by intended ID
             new_row = {col: "" for col in LOG_COLUMNS}
             new_row["Invoice No"] = str(inv_num)
             new_row["Client Name"] = str(c_name)
@@ -497,16 +499,13 @@ def render_admin_tracker():
                 
                 if st.button("💾 Save Commercial Invoice Only", type="primary", use_container_width=True):
                     with st.spinner("Locking Commercial Invoice PDF to Drive Vault..."):
-                        if client_name == "Select a Client...":
-                            st.error("Please select a valid Client Workspace first.")
-                        else:
-                            inv_link = upload_system_pdf_to_drive(st.session_state["h_inv"], f"{invoice_num}_Commercial_Invoice.pdf", client_name, invoice_num)
-                            df_update = load_log_data()
-                            df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
-                            idx = df_update.index[df_update['Invoice No'] == st.session_state["active_shell_id"]].tolist()[0]
-                            df_update.at[idx, "Commercial Invoice"] = inv_link
-                            save_log_data(df_update)
-                            st.success("✅ Commercial Invoice locked and linked to Master Log!")
+                        inv_link = upload_system_pdf_to_drive(st.session_state["h_inv"], f"{invoice_num}_Commercial_Invoice.pdf", client_name, invoice_num)
+                        df_update = load_log_data()
+                        df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
+                        idx = df_update.index[df_update['Invoice No'].astype(str) == str(st.session_state["active_shell_id"])].tolist()[0]
+                        df_update.at[idx, "Commercial Invoice"] = inv_link
+                        save_log_data(df_update)
+                        st.success("✅ Commercial Invoice locked!")
                 
         with t_car:
             if st.button("⚙️ Preview CARICOM"): 
@@ -517,16 +516,13 @@ def render_admin_tracker():
                 
                 if st.button("💾 Save CARICOM Invoice Only", type="primary", use_container_width=True):
                     with st.spinner("Locking CARICOM Invoice PDF to Drive Vault..."):
-                        if client_name == "Select a Client...":
-                            st.error("Please select a valid Client Workspace first.")
-                        else:
-                            car_link = upload_system_pdf_to_drive(st.session_state["h_car"], f"{invoice_num}_CARICOM_Invoice.pdf", client_name, invoice_num)
-                            df_update = load_log_data()
-                            df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
-                            idx = df_update.index[df_update['Invoice No'] == st.session_state["active_shell_id"]].tolist()[0]
-                            df_update.at[idx, "CARICOM Invoice"] = car_link
-                            save_log_data(df_update)
-                            st.success("✅ CARICOM Invoice locked and linked to Master Log!")
+                        car_link = upload_system_pdf_to_drive(st.session_state["h_car"], f"{invoice_num}_CARICOM_Invoice.pdf", client_name, invoice_num)
+                        df_update = load_log_data()
+                        df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
+                        idx = df_update.index[df_update['Invoice No'].astype(str) == str(st.session_state["active_shell_id"])].tolist()[0]
+                        df_update.at[idx, "CARICOM Invoice"] = car_link
+                        save_log_data(df_update)
+                        st.success("✅ CARICOM Invoice locked!")
                 
         with t_pck:
             if "pck_working_df" in st.session_state:
@@ -558,17 +554,14 @@ def render_admin_tracker():
                 display_html_preview(st.session_state["h_pck"])
                 
                 if st.button("💾 Save Packing Manifest Only", type="primary", use_container_width=True):
-                    with st.spinner("Locking Sequential Packing Manifest to Drive Vault..."):
-                        if client_name == "Select a Client...":
-                            st.error("Please select a valid Client Workspace first.")
-                        else:
-                            pck_link = upload_system_pdf_to_drive(st.session_state["h_pck"], f"{invoice_num}_Sequential_Packing_List.pdf", client_name, invoice_num)
-                            df_update = load_log_data()
-                            df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
-                            idx = df_update.index[df_update['Invoice No'] == st.session_state["active_shell_id"]].tolist()[0]
-                            df_update.at[idx, "Sequential Packing List"] = pck_link
-                            save_log_data(df_update)
-                            st.success("✅ Packing Manifest locked and linked to Master Log!")
+                    with st.spinner("Locking Packing Manifest PDF to Drive Vault..."):
+                        pck_link = upload_system_pdf_to_drive(st.session_state["h_pck"], f"{invoice_num}_Sequential_Packing_List.pdf", client_name, invoice_num)
+                        df_update = load_log_data()
+                        df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
+                        idx = df_update.index[df_update['Invoice No'].astype(str) == str(st.session_state["active_shell_id"])].tolist()[0]
+                        df_update.at[idx, "Sequential Packing List"] = pck_link
+                        save_log_data(df_update)
+                        st.success("✅ Packing Manifest locked!")
                 
         with t_dut:
             if st.button("⚙️ Preview Customs Summary"): 
@@ -577,17 +570,14 @@ def render_admin_tracker():
                 display_html_preview(st.session_state["h_dut"])
                 
                 if st.button("💾 Save Customs Summary Only", type="primary", use_container_width=True):
-                    with st.spinner("Locking Official Customs Summary to Drive Vault..."):
-                        if client_name == "Select a Client...":
-                            st.error("Please select a valid Client Workspace first.")
-                        else:
-                            dut_link = upload_system_pdf_to_drive(st.session_state["h_dut"], f"{invoice_num}_Official_Duties.pdf", client_name, invoice_num)
-                            df_update = load_log_data()
-                            df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
-                            idx = df_update.index[df_update['Invoice No'] == st.session_state["active_shell_id"]].tolist()[0]
-                            df_update.at[idx, "Official Duties Assessment"] = dut_link
-                            save_log_data(df_update)
-                            st.success("✅ Customs Summary locked and linked to Master Log!")
+                    with st.spinner("Locking Customs Summary PDF to Drive Vault..."):
+                        dut_link = upload_system_pdf_to_drive(st.session_state["h_dut"], f"{invoice_num}_Official_Duties.pdf", client_name, invoice_num)
+                        df_update = load_log_data()
+                        df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
+                        idx = df_update.index[df_update['Invoice No'].astype(str) == str(st.session_state["active_shell_id"])].tolist()[0]
+                        df_update.at[idx, "Official Duties Assessment"] = dut_link
+                        save_log_data(df_update)
+                        st.success("✅ Customs Summary locked!")
 
 # ==========================================
 # 5. THE WORKSPACE ROUTER (No Login)
@@ -604,6 +594,7 @@ with col_create:
             # Smart sequential generator based on INV format
             next_num = 1001
             if not df_current.empty and "Invoice No" in df_current.columns:
+                # Get only numeric parts for counting
                 valid_ids = df_current["Invoice No"].astype(str).tolist()
                 nums = [int(re.findall(r'\d+', x)[0]) for x in valid_ids if re.findall(r'\d+', x)]
                 if nums:
