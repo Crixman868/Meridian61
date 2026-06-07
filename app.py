@@ -146,7 +146,6 @@ def upload_system_pdf_to_drive(html_content, file_name, client_name, invoice_no)
         HTML(string=html_content).write_pdf(temp_pdf_path)
         pdf_media = MediaFileUpload(temp_pdf_path, mimetype='application/pdf', resumable=True)
         
-        # Overwrite Logic
         existing_files = drive.files().list(q=f"name='{file_name}' and '{inv_folder_id}' in parents and trashed=false", fields="files(id, webViewLink)").execute().get('files', [])
         
         if existing_files:
@@ -182,7 +181,6 @@ def upload_physical_file_to_drive(uploaded_file, file_name, client_name, invoice
             
         media = MediaFileUpload(temp_path, resumable=True)
 
-        # Overwrite Logic
         existing_files = drive.files().list(q=f"name='{file_name}' and '{inv_folder_id}' in parents and trashed=false", fields="files(id, webViewLink)").execute().get('files', [])
         
         if existing_files:
@@ -381,14 +379,26 @@ def render_admin_tracker():
         st.warning("⚠️ Access Restriction: Please create or select an Active Workspace Shell from the top menu to enable data intake.")
         return
 
+    # Check-Before-You-Sync logic prevents IndexError/Crash
     def sync_base_metadata_to_log(df_active, inv_num, c_name, ctns, date):
-        idx = df_active.index[df_active['Invoice No'] == active_shell].tolist()[0]
-        df_active.at[idx, "Client Name"] = str(c_name)
-        df_active.at[idx, "Total Cartons"] = str(int(ctns))
-        df_active.at[idx, "ETA"] = str(date)
+        matches = df_active.index[df_active['Invoice No'].astype(str) == str(active_shell)].tolist()
         
-        if str(inv_num).strip() and str(inv_num) != active_shell:
-            df_active.at[idx, "Invoice No"] = str(inv_num)
+        if matches:
+            idx = matches[0]
+            df_active.at[idx, "Client Name"] = str(c_name)
+            df_active.at[idx, "Total Cartons"] = str(int(ctns))
+            df_active.at[idx, "ETA"] = str(date)
+            if str(inv_num).strip() and str(inv_num) != active_shell:
+                df_active.at[idx, "Invoice No"] = str(inv_num)
+                st.session_state["active_shell_id"] = str(inv_num)
+        else:
+            new_row = {col: "" for col in LOG_COLUMNS}
+            new_row["Invoice No"] = str(inv_num)
+            new_row["Client Name"] = str(c_name)
+            new_row["Total Cartons"] = str(int(ctns))
+            new_row["ETA"] = str(date)
+            new_row["Shipment Status"] = "Active"
+            df_active = pd.concat([df_active, pd.DataFrame([new_row])], ignore_index=True)
             st.session_state["active_shell_id"] = str(inv_num)
         return df_active
 
