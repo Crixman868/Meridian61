@@ -301,7 +301,7 @@ def render_master_log():
         for idx, row in df.iterrows():
             row_uid = str(row.get('Row_UID', ''))
             if not row_uid.strip():
-                continue # Safety bypass for row alignment strings
+                continue 
                 
             inv_no = str(row.get('Invoice No', ''))
             display_inv = inv_no if inv_no.strip() else "[Blank Entry]"
@@ -384,14 +384,12 @@ def render_admin_tracker():
         st.warning("⚠️ Access Restriction: Please create or select an Active Workspace Shell from the top menu to enable data intake.")
         return
 
-    # Look up by system token Row_UID
     df_current = load_log_data()
     current_inv = ""
     match_row = df_current[df_current['Row_UID'].astype(str).str.strip() == active_shell_uid.strip()]
     if not match_row.empty:
         current_inv = str(match_row.iloc[0].get('Invoice No', ''))
 
-    # Exact sync target tracking
     def sync_base_metadata_to_log(df_active, inv_num, c_name, ctns, date):
         df_active['Row_UID'] = df_active['Row_UID'].astype(str).str.strip()
         matches = df_active.index[df_active['Row_UID'] == active_shell_uid.strip()].tolist()
@@ -399,6 +397,8 @@ def render_admin_tracker():
         if matches:
             idx = matches[0]
             df_active.at[idx, "Client Name"] = str(c_name)
+            
+            # Formatted column alignment assignment directly to String to keep type consistency
             df_active.at[idx, "Total Cartons"] = str(int(ctns))
             df_active.at[idx, "ETA"] = str(date)
             df_active.at[idx, "Invoice No"] = str(inv_num).strip()
@@ -600,13 +600,15 @@ with col_create:
         with st.spinner("Initializing Workspace Shell..."):
             df_current = load_log_data()
             
-            # Pure system identity generation token
             new_uid = f"UID-{datetime.now().strftime('%Y%m%d%H%M%S')}"
             
             blank_row = {col: "" for col in LOG_COLUMNS}
             blank_row["Row_UID"] = new_uid
-            # Invoice No column is cleanly targeted as empty text string for data entry
             blank_row["Invoice No"] = ""
+            
+            # Enforce data type consistency immediately during initialization to align with the core schema
+            blank_row["Total Cartons"] = "0"
+            
             blank_row["Shipment Status"] = "Active"
             blank_row["NALDO"] = "No"
             blank_row["Lodged Status"] = "No"
@@ -632,7 +634,6 @@ with col_select:
             if not r_uid: 
                 continue
             
-            # Display format cleanly adjusts if human input field is blank
             display_name = s_id if s_id.strip() else "[Blank Entry]"
             label = f"[{r_uid}] INV: {display_name}"
             if s_client: label += f" | Client: {s_client}"
