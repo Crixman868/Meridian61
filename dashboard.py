@@ -3,13 +3,29 @@ import pandas as pd
 from app import load_log_data, get_eta_status, ALL_DOCS
 from datetime import datetime
 
+# 1. PAGE CONFIG
 st.set_page_config(page_title="Staff Dashboard", layout="wide", initial_sidebar_state="collapsed")
 
+# 2. CSS FOR ALIGNMENT, HEADER WRAP, AND SPACING
 st.markdown("""
 <style>
-    .stApp { background-color: #ffffff; }
-    /* Mobile-responsive font scaling */
-    .stDataFrame { font-size: 0.8rem !important; }
+    /* Remove white gap above title */
+    .block-container { padding-top: 1rem; }
+    
+    /* Smaller title */
+    h1 { font-size: 1.5rem !important; margin-bottom: 0.5rem !important; }
+    
+    /* Header wrapping, center/middle align */
+    div[data-testid="stDataFrame"] th {
+        white-space: normal !important;
+        word-wrap: break-word !important;
+        text-align: center !important;
+        vertical-align: middle !important;
+    }
+    div[data-testid="stDataFrame"] td {
+        text-align: center !important;
+        vertical-align: middle !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -32,12 +48,11 @@ def render_staff_dashboard():
         label, _ = get_eta_status(current_date, ship_status)
         return label
 
-    df["Shipment Status"] = df.apply(get_status_label, axis=1)
+    df["Status"] = df.apply(get_status_label, axis=1) # Renamed to match your spreadsheet
 
-    # All Original Columns preserved
+    # Binary Transformation
     doc_cols = [col for col in ALL_DOCS if col in df.columns]
     
-    # Doc Status Calculation (Ready vs Pending)
     def get_doc_status(row):
         for col in doc_cols:
             if not str(row[col]).startswith("http"):
@@ -46,28 +61,31 @@ def render_staff_dashboard():
 
     df["Doc Status"] = df.apply(get_doc_status, axis=1)
     
-    # Visual Binary Transformation for all docs
     for col in doc_cols:
         df[col] = df[col].apply(lambda x: "✅" if str(x).startswith("http") else "⬜")
 
     df["NALDO"] = df["NALDO"].apply(lambda x: "✅" if str(x).strip().upper() == "YES" else "⬜")
     
-    # KEEP ALL COLUMNS
-    display_cols = ["Invoice No", "Shipment Status", "NALDO"] + doc_cols + ["Doc Status"]
+    # EXACT HEADER ORDER per image
+    display_cols = ["Total Cartons", "Status", "NALDO", "ETA", "Container #", "Client Name", "Country of Origin", "Invoice No"] + doc_cols + ["Doc Status"]
     df_display = df[display_cols]
+    df_display.columns = ["TOTAL CTNS", "Status", "NALDO", "ETA", "Container #", "Client", "Origin", "Invoice#"] + doc_cols + ["Doc Status"]
 
-    # Styling
+    # Styling (Purple NALDO, Red/Orange Timeline)
     def style_dashboard(row):
         styles = [''] * len(row)
+        # NALDO Purple Override
         if 'NALDO' in row.index and row['NALDO'] == '✅':
             styles[row.index.get_loc('NALDO')] = 'background-color: #9b59b6; color: white; font-weight: bold;'
-        if 'Shipment Status' in row.index:
-            s = str(row['Shipment Status'])
-            if 'OVERDUE' in s: styles[row.index.get_loc('Shipment Status')] = 'background-color: #ffb3b3; color: black;'
-            if 'URGENT' in s: styles[row.index.get_loc('Shipment Status')] = 'background-color: #ffe6a8; color: black;'
+        
+        # Timeline Overdue/Urgent Highlighting
+        if 'Status' in row.index:
+            s = str(row['Status'])
+            if 'OVERDUE' in s: styles[row.index.get_loc('Status')] = 'background-color: #ffb3b3; color: black;'
+            if 'URGENT' in s: styles[row.index.get_loc('Status')] = 'background-color: #ffe6a8; color: black;'
         return styles
 
-    # Mobile-optimized grid: use_container_width + scrolling handles the columns
+    # Mobile-optimized grid: use_container_width + scrolling
     st.dataframe(
         df_display.style.apply(style_dashboard, axis=1), 
         use_container_width=True, 
