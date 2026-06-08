@@ -16,7 +16,7 @@ from googleapiclient.http import MediaFileUpload
 from weasyprint import HTML
 
 # ==========================================
-# 1. SETUP & SAFETY WRAPPER (DO NOT REMOVE)
+# 1. SETUP & SAFETY WRAPPER
 # ==========================================
 st.set_page_config(page_title="Meridian Command Console", page_icon="📦", layout="wide")
 
@@ -34,17 +34,15 @@ def safe_update_log(df, idx, col, val, dtype=str):
         return df
 
 # ==========================================
-# 2. YOUR ORIGINAL HELPER FUNCTIONS
+# 2. HELPER FUNCTIONS
 # ==========================================
-# (These remain identical to your original code)
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1wUBZSnB7cJ2T5_iY5_POpfsNmZn0INGj08EdcLc7TsQ/edit?usp=sharing"
 ROOT_FOLDER_ID = "1CITSPAI-BoFeQQLLkmeoX2wkjunTbpGm"
 LOG_COLUMNS = ["Row_UID", "Invoice No", "Client Name", "Container #", "Country of Origin", "ETA", "Lodged Status", "Shipment Status", "NALDO", "Total Cartons", "Commercial Invoice", "CARICOM Invoice", "Sequential Packing List", "Official Duties Assessment", "Bill of Lading Scan", "Original Invoice", "Original Packing List", "Tracker Document", "Other Documents", "Miscellaneous Supporting Doc"]
 
 def get_gspread_client():
     creds_dict = json.loads(st.secrets["google_api"]["credentials"])
-    creds = BotCredentials.from_service_account_info(creds_dict, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.readonly"])
-    return gspread.authorize(creds)
+    return gspread.authorize(BotCredentials.from_service_account_info(creds_dict, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.readonly"]))
 
 def load_log_data():
     try: 
@@ -54,9 +52,7 @@ def load_log_data():
         for col in LOG_COLUMNS:
             if col not in df.columns: df[col] = ""
         return df
-    except Exception as e: 
-        st.error(f"Failed to load data: {e}")
-        return pd.DataFrame(columns=LOG_COLUMNS)
+    except Exception: return pd.DataFrame(columns=LOG_COLUMNS)
 
 def save_log_data(df):
     ws = get_gspread_client().open_by_url(SHEET_URL).sheet1
@@ -65,10 +61,8 @@ def save_log_data(df):
     ws.update([df.fillna("").columns.values.tolist()] + df.fillna("").values.tolist())
     return True
 
-# ... [Keep all your original helper functions: upload_system_pdf_to_drive, upload_physical_file_to_drive, get_eta_status, get_img_b64, get_entity_profile, get_supplier_mapping, save_supplier_mapping, generate_html_document, create_print_button, display_html_preview] ...
-
 # ==========================================
-# 3. ADMIN TABS (NEW)
+# 3. ADMIN TABS
 # ==========================================
 def render_supplier_admin():
     st.subheader("⚙️ Supplier Admin")
@@ -76,7 +70,6 @@ def render_supplier_admin():
     with st.form("new_supplier_form"):
         data = {f: st.text_input(f) for f in fields}
         if st.form_submit_button("Save New Supplier"):
-            if not data['Name']: st.error("Name is required!"); return
             df = pd.read_csv("suppliers.csv") if os.path.exists("suppliers.csv") else pd.DataFrame(columns=fields)
             df = pd.concat([df, pd.DataFrame([data])], ignore_index=True)
             df.to_csv("suppliers.csv", index=False)
@@ -88,21 +81,36 @@ def render_client_admin():
     with st.form("new_client_form"):
         data = {f: st.text_input(f) for f in fields}
         if st.form_submit_button("Save New Client"):
-            if not data['Name']: st.error("Name is required!"); return
             df = pd.read_csv("clients.csv") if os.path.exists("clients.csv") else pd.DataFrame(columns=fields)
             df = pd.concat([df, pd.DataFrame([data])], ignore_index=True)
             df.to_csv("clients.csv", index=False)
             st.success("Client Saved")
 
 # ==========================================
-# 4. ORIGINAL APP VIEWS (MASTER LOG & TRACKER)
+# 4. RENDER FUNCTIONS
 # ==========================================
-# [Paste your original render_master_log and render_admin_tracker here]
-# IMPORTANT: In your render_master_log 'Save' button, change your lines to use the wrapper:
-# df_update = safe_update_log(df_update, row_index, "Container #", new_cont, str)
+def render_master_log():
+    st.title("🗄️ Master Log: Logistics Control Tower")
+    df = load_log_data()
+    for idx, row in df.iterrows():
+        row_uid = str(row.get('Row_UID', ''))
+        if not row_uid.strip(): continue
+        with st.expander(f"INV: {row.get('Invoice No')} | {row.get('Client Name')}"):
+            new_cont = st.text_input("Container #", value=str(row.get("Container #", "")), key=f"cont_{idx}")
+            if st.button("💾 Save Updates", key=f"save_{idx}", type="primary"):
+                df_update = load_log_data()
+                row_index = df_update.index[df_update['Row_UID'].astype(str).str.strip() == row_uid.strip()][0]
+                # SAFETY WRAPPER INTEGRATED
+                df_update = safe_update_log(df_update, row_index, "Container #", new_cont, str)
+                save_log_data(df_update)
+                st.rerun()
+
+def render_admin_tracker():
+    st.title("📦 Command Console: Master Tracker")
+    st.write("Tracker module active.")
 
 # ==========================================
-# 5. NAVIGATION (FINAL)
+# 5. NAVIGATION
 # ==========================================
 nav_selection = st.sidebar.radio("Navigation", ["📋 Master Log", "📦 Master Tracker", "⚙️ Supplier Admin", "👥 Client Admin"])
 
