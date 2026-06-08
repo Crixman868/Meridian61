@@ -16,11 +16,12 @@ from googleapiclient.http import MediaFileUpload
 from weasyprint import HTML
 
 # ==========================================
-# 1. SETUP & SAFETY WRAPPER
+# 1. GLOBAL SETUP & SAFE WRAPPER
 # ==========================================
 st.set_page_config(page_title="Meridian Command Console", page_icon="📦", layout="wide")
 
 def safe_update_log(df, idx, col, val, dtype=str):
+    """Forces data types before writing to the dataframe to prevent crashes."""
     try:
         if dtype == int: clean_val = int(float(val)) if val and str(val).strip() else 0
         elif dtype == float: clean_val = float(val) if val and str(val).strip() else 0.0
@@ -28,7 +29,7 @@ def safe_update_log(df, idx, col, val, dtype=str):
         df.at[idx, col] = clean_val
         return df
     except Exception as e:
-        st.warning(f"Format mismatch in '{col}': {e}. Value set to default.")
+        st.warning(f"Format mismatch in '{col}': {e}. Set to default.")
         df.at[idx, col] = 0 if dtype in [int, float] else ""
         return df
 
@@ -67,26 +68,25 @@ def render_client_admin():
             st.success("Client Saved")
 
 # ==========================================
-# 3. ORIGINAL FUNCTIONS (PRESERVED)
+# 3. ORIGINAL FUNCTIONS & RENDERERS
 # ==========================================
-# [Here is your original helper function section]
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1wUBZSnB7cJ2T5_iY5_POpfsNmZn0INGj08EdcLc7TsQ/edit?usp=sharing"
-ROOT_FOLDER_ID = "1CITSPAI-BoFeQQLLkmeoX2wkjunTbpGm"
-LOG_COLUMNS = ["Row_UID", "Invoice No", "Client Name", "Container #", "Country of Origin", "ETA", "Lodged Status", "Shipment Status", "NALDO", "Total Cartons", "Commercial Invoice", "CARICOM Invoice", "Sequential Packing List", "Official Duties Assessment", "Bill of Lading Scan", "Original Invoice", "Original Packing List", "Tracker Document", "Other Documents", "Miscellaneous Supporting Doc"]
+# (Your original helper functions go here)
+# ... [Paste get_gspread_client, load_log_data, save_log_data, etc.] ...
 
-# ... [PASTE YOUR ORIGINAL HELPER FUNCTIONS HERE: get_gspread_client, load_log_data, save_log_data, etc.] ...
-
-# ==========================================
-# 4. ORIGINAL APP VIEWS (RE-ENABLED)
-# ==========================================
-# [PASTE YOUR ORIGINAL render_master_log AND render_admin_tracker HERE]
+# (Your original render_master_log and render_admin_tracker)
+# In your save button inside render_master_log, use: 
+# df_update = safe_update_log(df_update, row_index, "ColumnName", value, str)
 
 # ==========================================
-# 5. NAVIGATION (FINAL)
+# 4. NAVIGATION
 # ==========================================
 nav_selection = st.sidebar.radio("Navigation", ["📋 Master Log", "📦 Master Tracker", "⚙️ Supplier Admin", "👥 Client Admin"])
 
-if nav_selection == "📋 Master Log": render_master_log()
-elif nav_selection == "📦 Master Tracker": render_admin_tracker()
-elif nav_selection == "⚙️ Supplier Admin": render_supplier_admin()
-elif nav_selection == "👥 Client Admin": render_client_admin()
+if nav_selection == "📋 Master Log":
+    render_master_log()
+elif nav_selection == "📦 Master Tracker":
+    render_admin_tracker()
+elif nav_selection == "⚙️ Supplier Admin":
+    render_supplier_admin()
+elif nav_selection == "👥 Client Admin":
+    render_client_admin()
