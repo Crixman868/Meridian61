@@ -28,12 +28,12 @@ def safe_update_log(df, idx, col, val, dtype=str):
         df.at[idx, col] = clean_val
         return df
     except Exception as e:
-        st.warning(f"Format mismatch in '{col}': {e}.")
+        st.warning(f"Format mismatch in '{col}': {e}. Value set to default.")
         df.at[idx, col] = 0 if dtype in [int, float] else ""
         return df
 
 # ==========================================
-# 2. YOUR ORIGINAL HELPER FUNCTIONS
+# 2. CONSTANTS & HELPER FUNCTIONS
 # ==========================================
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1wUBZSnB7cJ2T5_iY5_POpfsNmZn0INGj08EdcLc7TsQ/edit?usp=sharing"
 ROOT_FOLDER_ID = "1CITSPAI-BoFeQQLLkmeoX2wkjunTbpGm"
@@ -84,7 +84,7 @@ def render_client_admin():
             st.success("Client Saved")
 
 # ==========================================
-# 4. RENDER FUNCTIONS (WITH SAFETY WRAPPER)
+# 4. RENDER FUNCTIONS (MASTER LOG & TRACKER)
 # ==========================================
 def render_master_log():
     st.title("🗄️ Master Log: Logistics Control Tower")
@@ -98,16 +98,16 @@ def render_master_log():
                 df_update = load_log_data()
                 row_index = df_update.index[df_update['Row_UID'].astype(str).str.strip() == row_uid.strip()][0]
                 
-                # SAFETY WRAPPER APPLIED HERE
+                # INTEGRATED SAFETY WRAPPER
                 df_update = safe_update_log(df_update, row_index, "Container #", new_cont, str)
                 
                 save_log_data(df_update)
-                st.success("✅ Saved!")
+                st.success("✅ Updates saved!")
                 st.rerun()
 
 def render_admin_tracker():
     st.title("📦 Command Console: Master Tracker")
-    st.write("Tracker logic active.")
+    st.write("Tracker module active.")
 
 # ==========================================
 # 5. NAVIGATION
