@@ -93,12 +93,13 @@ def render_staff_dashboard():
         "TOTAL CTNS": st.column_config.Column("TOTAL CTNS", pinned=True),
     }
 
-    # Render Data Grid
+    # Render Data Grid with Column Locking and Locked Headers (height=600 locks headers)
     st.dataframe(
         df_display.style.apply(style_dashboard, axis=1), 
         use_container_width=True, 
         hide_index=True,
-        column_config=column_config
+        column_config=column_config,
+        height=600 
     )
 
 # Execution
