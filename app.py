@@ -74,7 +74,6 @@ SYSTEM_DOCS = ["Commercial Invoice", "CARICOM Invoice", "Sequential Packing List
 EXTERNAL_DOCS = ["Bill of Lading Scan", "Original Invoice", "Original Packing List", "Tracker Document", "Other Documents", "Miscellaneous Supporting Doc"]
 ALL_DOCS = SYSTEM_DOCS + EXTERNAL_DOCS
 
-# Added Row_UID as the immutable primary key
 LOG_COLUMNS = [
     "Row_UID", "Invoice No", "Client Name", "Container #", "Country of Origin", "ETA", 
     "Lodged Status", "Shipment Status", "NALDO", "Total Cartons", 
@@ -302,9 +301,10 @@ def render_master_log():
         for idx, row in df.iterrows():
             row_uid = str(row.get('Row_UID', ''))
             if not row_uid.strip():
-                continue # Skip rendering broken rows without UIDs
+                continue # Safety bypass for row alignment strings
                 
-            inv_no = str(row.get('Invoice No', 'N/A'))
+            inv_no = str(row.get('Invoice No', ''))
+            display_inv = inv_no if inv_no.strip() else "[Blank Entry]"
             client_name = str(row.get('Client Name', 'Unknown Client'))
             ship_status = str(row.get("Shipment Status", "Active"))
             total_cartons = str(row.get("Total Cartons", "0"))
@@ -319,7 +319,7 @@ def render_master_log():
             
             header_text = (f"📦 TOTAL CTNS: {total_cartons} | {status_label} | ETA: {current_date} | "
                            f"Client: {client_name} | Origin: {row.get('Country of Origin', 'N/A')} | "
-                           f"Lodged: {row.get('Lodged Status', 'N/A')} | {naldo_display} | INV: {inv_no}")
+                           f"Lodged: {row.get('Lodged Status', 'N/A')} | {naldo_display} | INV: {display_inv}")
 
             with st.expander(header_text):
                 col1, col2, col3, col4, col5, col6 = st.columns(6)
@@ -359,7 +359,6 @@ def render_master_log():
                 if st.button("💾 Save Shipment Updates", key=f"save_{idx}", type="primary"):
                     with st.spinner("Processing updates..."):
                         df_update = load_log_data()
-                        # System now locks onto the immutable Row_UID
                         row_index = df_update.index[df_update['Row_UID'].astype(str).str.strip() == row_uid.strip()].tolist()[0]
                         df_update.at[row_index, "Container #"] = new_cont
                         df_update.at[row_index, "Country of Origin"] = new_orig
@@ -369,8 +368,8 @@ def render_master_log():
                         df_update.at[row_index, "NALDO"] = new_naldo
                         
                         for slot_name, up_file in upload_cache.items():
-                            doc_filename = f"{inv_no}_{slot_name.replace(' ', '_')}.pdf"
-                            new_link = upload_physical_file_to_drive(up_file, doc_filename, client_name, inv_no)
+                            doc_filename = f"{inv_no if inv_no.strip() else row_uid}_{slot_name.replace(' ', '_')}.pdf"
+                            new_link = upload_physical_file_to_drive(up_file, doc_filename, client_name, inv_no if inv_no.strip() else row_uid)
                             if new_link: df_update.at[row_index, slot_name] = new_link
                             
                         if save_log_data(df_update):
@@ -385,14 +384,14 @@ def render_admin_tracker():
         st.warning("⚠️ Access Restriction: Please create or select an Active Workspace Shell from the top menu to enable data intake.")
         return
 
-    # Retrieve current Invoice No for the UI
+    # Look up by system token Row_UID
     df_current = load_log_data()
     current_inv = ""
     match_row = df_current[df_current['Row_UID'].astype(str).str.strip() == active_shell_uid.strip()]
     if not match_row.empty:
         current_inv = str(match_row.iloc[0].get('Invoice No', ''))
 
-    # Smart sync logic locked to the immutable Row_UID
+    # Exact sync target tracking
     def sync_base_metadata_to_log(df_active, inv_num, c_name, ctns, date):
         df_active['Row_UID'] = df_active['Row_UID'].astype(str).str.strip()
         matches = df_active.index[df_active['Row_UID'] == active_shell_uid.strip()].tolist()
@@ -509,7 +508,7 @@ def render_admin_tracker():
                 
                 if st.button("💾 Save Commercial Invoice Only", type="primary", use_container_width=True):
                     with st.spinner("Locking Commercial Invoice PDF to Drive Vault..."):
-                        inv_link = upload_system_pdf_to_drive(st.session_state["h_inv"], f"{invoice_num}_Commercial_Invoice.pdf", client_name, invoice_num)
+                        inv_link = upload_system_pdf_to_drive(st.session_state["h_inv"], f"{(invoice_num if invoice_num.strip() else active_shell_uid)}_Commercial_Invoice.pdf", client_name, invoice_num if invoice_num.strip() else active_shell_uid)
                         df_update = load_log_data()
                         df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
                         idx = df_update.index[df_update['Row_UID'].astype(str).str.strip() == active_shell_uid.strip()].tolist()[0]
@@ -526,7 +525,7 @@ def render_admin_tracker():
                 
                 if st.button("💾 Save CARICOM Invoice Only", type="primary", use_container_width=True):
                     with st.spinner("Locking CARICOM Invoice PDF to Drive Vault..."):
-                        car_link = upload_system_pdf_to_drive(st.session_state["h_car"], f"{invoice_num}_CARICOM_Invoice.pdf", client_name, invoice_num)
+                        car_link = upload_system_pdf_to_drive(st.session_state["h_car"], f"{(invoice_num if invoice_num.strip() else active_shell_uid)}_CARICOM_Invoice.pdf", client_name, invoice_num if invoice_num.strip() else active_shell_uid)
                         df_update = load_log_data()
                         df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
                         idx = df_update.index[df_update['Row_UID'].astype(str).str.strip() == active_shell_uid.strip()].tolist()[0]
@@ -565,7 +564,7 @@ def render_admin_tracker():
                 
                 if st.button("💾 Save Packing Manifest Only", type="primary", use_container_width=True):
                     with st.spinner("Locking Packing Manifest PDF to Drive Vault..."):
-                        pck_link = upload_system_pdf_to_drive(st.session_state["h_pck"], f"{invoice_num}_Sequential_Packing_List.pdf", client_name, invoice_num)
+                        pck_link = upload_system_pdf_to_drive(st.session_state["h_pck"], f"{(invoice_num if invoice_num.strip() else active_shell_uid)}_Sequential_Packing_List.pdf", client_name, invoice_num if invoice_num.strip() else active_shell_uid)
                         df_update = load_log_data()
                         df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
                         idx = df_update.index[df_update['Row_UID'].astype(str).str.strip() == active_shell_uid.strip()].tolist()[0]
@@ -581,7 +580,7 @@ def render_admin_tracker():
                 
                 if st.button("💾 Save Customs Summary Only", type="primary", use_container_width=True):
                     with st.spinner("Locking Customs Summary PDF to Drive Vault..."):
-                        dut_link = upload_system_pdf_to_drive(st.session_state["h_dut"], f"{invoice_num}_Official_Duties.pdf", client_name, invoice_num)
+                        dut_link = upload_system_pdf_to_drive(st.session_state["h_dut"], f"{(invoice_num if invoice_num.strip() else active_shell_uid)}_Official_Duties.pdf", client_name, invoice_num if invoice_num.strip() else active_shell_uid)
                         df_update = load_log_data()
                         df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
                         idx = df_update.index[df_update['Row_UID'].astype(str).str.strip() == active_shell_uid.strip()].tolist()[0]
@@ -601,12 +600,13 @@ with col_create:
         with st.spinner("Initializing Workspace Shell..."):
             df_current = load_log_data()
             
-            # Generator for System Primary Key
+            # Pure system identity generation token
             new_uid = f"UID-{datetime.now().strftime('%Y%m%d%H%M%S')}"
             
             blank_row = {col: "" for col in LOG_COLUMNS}
             blank_row["Row_UID"] = new_uid
-            # Invoice No is intentionally left blank for manual entry
+            # Invoice No column is cleanly targeted as empty text string for data entry
+            blank_row["Invoice No"] = ""
             blank_row["Shipment Status"] = "Active"
             blank_row["NALDO"] = "No"
             blank_row["Lodged Status"] = "No"
@@ -629,12 +629,12 @@ with col_select:
             s_ctns = str(r.get("Total Cartons", "")).strip()
             s_client = str(r.get("Client Name", "")).strip()
             
-            # Ignore rows until manual backfill is completed
             if not r_uid: 
                 continue
             
-            # Bind UID invisibly into the bracket for extraction
-            label = f"[{r_uid}] INV: {s_id}"
+            # Display format cleanly adjusts if human input field is blank
+            display_name = s_id if s_id.strip() else "[Blank Entry]"
+            label = f"[{r_uid}] INV: {display_name}"
             if s_client: label += f" | Client: {s_client}"
             if s_ctns and s_ctns != "0": label += f" | Cartons: {s_ctns}"
             dropdown_options.append(label)
@@ -646,7 +646,6 @@ with col_select:
     selected_option = st.selectbox("Select Target Workspace", dropdown_options, index=default_sel_idx, label_visibility="collapsed")
     
     if selected_option != "-- Choose Active Workspace --":
-        # Extract UID from bracket
         match = re.search(r'\[(.*?)\]', selected_option)
         if match:
             st.session_state["active_shell_uid"] = match.group(1)
