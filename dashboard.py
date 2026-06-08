@@ -1,3 +1,10 @@
+st.markdown("""
+<style>
+    .stApp { background-color: #ffffff; }
+    /* This ensures the table text remains legible against the purple background */
+    .table td { color: #000000 !important; }
+</style>
+""", unsafe_allow_html=True)
 import streamlit as st
 import pandas as pd
 from app import load_log_data, get_eta_status, ALL_DOCS
