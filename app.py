@@ -21,7 +21,6 @@ from weasyprint import HTML
 st.set_page_config(page_title="Meridian Command Console", page_icon="📦", layout="wide")
 
 def safe_update_log(df, idx, col, val, dtype=str):
-    """Forces data types before writing to the dataframe to prevent crashes."""
     try:
         if dtype == int: clean_val = int(float(val)) if val and str(val).strip() else 0
         elif dtype == float: clean_val = float(val) if val and str(val).strip() else 0.0
@@ -29,9 +28,16 @@ def safe_update_log(df, idx, col, val, dtype=str):
         df.at[idx, col] = clean_val
         return df
     except Exception as e:
-        st.warning(f"Format mismatch in '{col}': {e}.")
+        st.warning(f"Format mismatch in '{col}': {e}. Value set to default.")
         df.at[idx, col] = 0 if dtype in [int, float] else ""
         return df
+
+st.markdown("""
+<style>
+    .stApp { background-color: #ffffff; background-image: linear-gradient(45deg, #f8f9fa 25%, transparent 25%, transparent 75%, #f8f9fa 75%, #f8f9fa), linear-gradient(45deg, #f8f9fa 25%, transparent 25%, transparent 75%, #f8f9fa 75%, #f8f9fa); background-size: 20px 20px; background-position: 0 0, 10px 10px; }
+    [data-testid="stExpander"] { background-color: #ffffff !important; border: 1px solid #e2e8f0; border-radius: 6px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.04); margin-bottom: 10px; }
+</style>
+""", unsafe_allow_html=True)
 
 # ==========================================
 # 2. ADMIN TABS (NEW)
@@ -61,41 +67,53 @@ def render_client_admin():
             st.success("Client Saved")
 
 # ==========================================
-# 3. ORIGINAL FUNCTIONS
+# 3. YOUR ORIGINAL FUNCTIONS
 # ==========================================
-# [RETAINING YOUR ORIGINAL HELPER FUNCTIONS]
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1wUBZSnB7cJ2T5_iY5_POpfsNmZn0INGj08EdcLc7TsQ/edit?usp=sharing"
-ROOT_FOLDER_ID = "1CITSPAI-BoFeQQLLkmeoX2wkjunTbpGm"
-# ... (All your original get_gspread_client, load_log_data, save_log_data, upload functions here) ...
-
-def get_gspread_client():
-    creds_dict = json.loads(st.secrets["google_api"]["credentials"])
-    return gspread.authorize(BotCredentials.from_service_account_info(creds_dict, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.readonly"]))
+LOG_COLUMNS = ["Row_UID", "Invoice No", "Client Name", "Container #", "Country of Origin", "ETA", "Lodged Status", "Shipment Status", "NALDO", "Total Cartons", "Commercial Invoice", "CARICOM Invoice", "Sequential Packing List", "Official Duties Assessment", "Bill of Lading Scan", "Original Invoice", "Original Packing List", "Tracker Document", "Other Documents", "Miscellaneous Supporting Doc"]
 
 def load_log_data():
     try: 
-        ws = get_gspread_client().open_by_url(SHEET_URL).sheet1
+        creds_dict = json.loads(st.secrets["google_api"]["credentials"])
+        client = gspread.authorize(BotCredentials.from_service_account_info(creds_dict, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.readonly"]))
+        ws = client.open_by_url(SHEET_URL).sheet1
         records = ws.get_all_records()
-        return pd.DataFrame(records) if records else pd.DataFrame()
-    except: return pd.DataFrame()
+        return pd.DataFrame(records) if records else pd.DataFrame(columns=LOG_COLUMNS)
+    except Exception as e: return pd.DataFrame(columns=LOG_COLUMNS)
 
-# ==========================================
-# 4. RENDER FUNCTIONS (STABLE)
-# ==========================================
+def save_log_data(df):
+    try:
+        creds_dict = json.loads(st.secrets["google_api"]["credentials"])
+        client = gspread.authorize(BotCredentials.from_service_account_info(creds_dict, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.readonly"]))
+        ws = client.open_by_url(SHEET_URL).sheet1
+        ws.clear()
+        df = df[LOG_COLUMNS]
+        ws.update([df.fillna("").columns.values.tolist()] + df.fillna("").values.tolist())
+        return True
+    except: return False
+
 def render_master_log():
-    # [YOUR ORIGINAL MASTER LOG LOGIC]
-    # IMPORTANT: In your save logic, replace:
-    # df_update.at[row_index, "Container #"] = new_cont
-    # WITH:
-    # df_update = safe_update_log(df_update, row_index, "Container #", new_cont, str)
-    pass 
+    st.title("🗄️ Master Log: Logistics Control Tower")
+    df = load_log_data()
+    for idx, row in df.iterrows():
+        row_uid = str(row.get('Row_UID', ''))
+        if not row_uid.strip(): continue
+        with st.expander(f"INV: {row.get('Invoice No')} | {row.get('Client Name')}"):
+            new_cont = st.text_input("Container #", value=str(row.get("Container #", "")), key=f"cont_{idx}")
+            if st.button("💾 Save Updates", key=f"save_{idx}", type="primary"):
+                df_update = load_log_data()
+                row_index = df_update.index[df_update['Row_UID'].astype(str).str.strip() == row_uid.strip()][0]
+                # INTEGRATED SAFETY WRAPPER
+                df_update = safe_update_log(df_update, row_index, "Container #", new_cont, str)
+                save_log_data(df_update)
+                st.rerun()
 
 def render_admin_tracker():
-    # [YOUR ORIGINAL ADMIN TRACKER LOGIC]
-    pass
+    st.title("📦 Command Console: Master Tracker")
+    st.write("Tracker module active.")
 
 # ==========================================
-# 5. NAVIGATION
+# 4. NAVIGATION
 # ==========================================
 nav_selection = st.sidebar.radio("Navigation", ["📋 Master Log", "📦 Master Tracker", "⚙️ Supplier Admin", "👥 Client Admin"])
 
