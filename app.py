@@ -74,8 +74,9 @@ SYSTEM_DOCS = ["Commercial Invoice", "CARICOM Invoice", "Sequential Packing List
 EXTERNAL_DOCS = ["Bill of Lading Scan", "Original Invoice", "Original Packing List", "Tracker Document", "Other Documents", "Miscellaneous Supporting Doc"]
 ALL_DOCS = SYSTEM_DOCS + EXTERNAL_DOCS
 
+# Added Row_UID as the immutable primary key
 LOG_COLUMNS = [
-    "Invoice No", "Client Name", "Container #", "Country of Origin", "ETA", 
+    "Row_UID", "Invoice No", "Client Name", "Container #", "Country of Origin", "ETA", 
     "Lodged Status", "Shipment Status", "NALDO", "Total Cartons", 
     "Commercial Invoice", "CARICOM Invoice", "Sequential Packing List", "Official Duties Assessment", 
     "Bill of Lading Scan", "Original Invoice", "Original Packing List", "Tracker Document", 
@@ -299,6 +300,10 @@ def render_master_log():
         st.info("No data found in the Master Log. Create a new shell to begin.")
     else:
         for idx, row in df.iterrows():
+            row_uid = str(row.get('Row_UID', ''))
+            if not row_uid.strip():
+                continue # Skip rendering broken rows without UIDs
+                
             inv_no = str(row.get('Invoice No', 'N/A'))
             client_name = str(row.get('Client Name', 'Unknown Client'))
             ship_status = str(row.get("Shipment Status", "Active"))
@@ -354,8 +359,8 @@ def render_master_log():
                 if st.button("💾 Save Shipment Updates", key=f"save_{idx}", type="primary"):
                     with st.spinner("Processing updates..."):
                         df_update = load_log_data()
-                        # Use .strip() to clean string lookups
-                        row_index = df_update.index[df_update['Invoice No'].astype(str).str.strip() == inv_no.strip()].tolist()[0]
+                        # System now locks onto the immutable Row_UID
+                        row_index = df_update.index[df_update['Row_UID'].astype(str).str.strip() == row_uid.strip()].tolist()[0]
                         df_update.at[row_index, "Container #"] = new_cont
                         df_update.at[row_index, "Country of Origin"] = new_orig
                         df_update.at[row_index, "ETA"] = str(new_eta)
@@ -375,34 +380,38 @@ def render_master_log():
 def render_admin_tracker():
     st.title("📦 Command Console: Master Tracker")
     
-    active_shell = st.session_state.get("active_shell_id", "")
-    if not active_shell or active_shell == "-- Choose Active Workspace --":
+    active_shell_uid = st.session_state.get("active_shell_uid", "")
+    if not active_shell_uid or active_shell_uid == "-- Choose Active Workspace --":
         st.warning("⚠️ Access Restriction: Please create or select an Active Workspace Shell from the top menu to enable data intake.")
         return
 
-    # Smart sync logic with whitespace stripping to prevent double entries
+    # Retrieve current Invoice No for the UI
+    df_current = load_log_data()
+    current_inv = ""
+    match_row = df_current[df_current['Row_UID'].astype(str).str.strip() == active_shell_uid.strip()]
+    if not match_row.empty:
+        current_inv = str(match_row.iloc[0].get('Invoice No', ''))
+
+    # Smart sync logic locked to the immutable Row_UID
     def sync_base_metadata_to_log(df_active, inv_num, c_name, ctns, date):
-        # Force string comparisons to ignore invisible whitespace
-        matches = df_active.index[df_active['Invoice No'].astype(str).str.strip() == str(active_shell).strip()].tolist()
+        df_active['Row_UID'] = df_active['Row_UID'].astype(str).str.strip()
+        matches = df_active.index[df_active['Row_UID'] == active_shell_uid.strip()].tolist()
         
         if matches:
             idx = matches[0]
             df_active.at[idx, "Client Name"] = str(c_name)
             df_active.at[idx, "Total Cartons"] = str(int(ctns))
             df_active.at[idx, "ETA"] = str(date)
-            # Update the Invoice ID if it changed
-            if str(inv_num).strip() and str(inv_num).strip() != str(active_shell).strip():
-                df_active.at[idx, "Invoice No"] = str(inv_num).strip()
-                st.session_state["active_shell_id"] = str(inv_num).strip()
+            df_active.at[idx, "Invoice No"] = str(inv_num).strip()
         else:
             new_row = {col: "" for col in LOG_COLUMNS}
+            new_row["Row_UID"] = active_shell_uid.strip()
             new_row["Invoice No"] = str(inv_num).strip()
             new_row["Client Name"] = str(c_name)
             new_row["Total Cartons"] = str(int(ctns))
             new_row["ETA"] = str(date)
             new_row["Shipment Status"] = "Active"
             df_active = pd.concat([df_active, pd.DataFrame([new_row])], ignore_index=True)
-            st.session_state["active_shell_id"] = str(inv_num).strip()
         return df_active
 
     client_file = "clients.csv"
@@ -441,7 +450,7 @@ def render_admin_tracker():
         st.markdown("#### Logistics Manifest Fields")
         cx1, cx2 = st.columns(2)
         with cx1:
-            invoice_num = st.text_input("Invoice Number", value=active_shell)
+            invoice_num = st.text_input("Invoice Number", value=current_inv)
             invoice_date = st.text_input("Invoice Date / ETA", value=datetime.now().strftime("%Y-%m-%d"))
             bl_number = st.text_input("Bill of Lading (BL#)")
             payment_terms = st.selectbox("Terms", ["NET 90 Days", "NET 45 Days", "NET 30 Days"])
@@ -503,7 +512,7 @@ def render_admin_tracker():
                         inv_link = upload_system_pdf_to_drive(st.session_state["h_inv"], f"{invoice_num}_Commercial_Invoice.pdf", client_name, invoice_num)
                         df_update = load_log_data()
                         df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
-                        idx = df_update.index[df_update['Invoice No'].astype(str).str.strip() == str(st.session_state["active_shell_id"]).strip()].tolist()[0]
+                        idx = df_update.index[df_update['Row_UID'].astype(str).str.strip() == active_shell_uid.strip()].tolist()[0]
                         df_update.at[idx, "Commercial Invoice"] = inv_link
                         save_log_data(df_update)
                         st.success("✅ Commercial Invoice locked!")
@@ -520,7 +529,7 @@ def render_admin_tracker():
                         car_link = upload_system_pdf_to_drive(st.session_state["h_car"], f"{invoice_num}_CARICOM_Invoice.pdf", client_name, invoice_num)
                         df_update = load_log_data()
                         df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
-                        idx = df_update.index[df_update['Invoice No'].astype(str).str.strip() == str(st.session_state["active_shell_id"]).strip()].tolist()[0]
+                        idx = df_update.index[df_update['Row_UID'].astype(str).str.strip() == active_shell_uid.strip()].tolist()[0]
                         df_update.at[idx, "CARICOM Invoice"] = car_link
                         save_log_data(df_update)
                         st.success("✅ CARICOM Invoice locked!")
@@ -559,7 +568,7 @@ def render_admin_tracker():
                         pck_link = upload_system_pdf_to_drive(st.session_state["h_pck"], f"{invoice_num}_Sequential_Packing_List.pdf", client_name, invoice_num)
                         df_update = load_log_data()
                         df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
-                        idx = df_update.index[df_update['Invoice No'].astype(str).str.strip() == str(st.session_state["active_shell_id"]).strip()].tolist()[0]
+                        idx = df_update.index[df_update['Row_UID'].astype(str).str.strip() == active_shell_uid.strip()].tolist()[0]
                         df_update.at[idx, "Sequential Packing List"] = pck_link
                         save_log_data(df_update)
                         st.success("✅ Packing Manifest locked!")
@@ -571,11 +580,11 @@ def render_admin_tracker():
                 display_html_preview(st.session_state["h_dut"])
                 
                 if st.button("💾 Save Customs Summary Only", type="primary", use_container_width=True):
-                    with st.spinner("Locking Official Customs Summary to Drive Vault..."):
+                    with st.spinner("Locking Customs Summary PDF to Drive Vault..."):
                         dut_link = upload_system_pdf_to_drive(st.session_state["h_dut"], f"{invoice_num}_Official_Duties.pdf", client_name, invoice_num)
                         df_update = load_log_data()
                         df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
-                        idx = df_update.index[df_update['Invoice No'].astype(str).str.strip() == str(st.session_state["active_shell_id"]).strip()].tolist()[0]
+                        idx = df_update.index[df_update['Row_UID'].astype(str).str.strip() == active_shell_uid.strip()].tolist()[0]
                         df_update.at[idx, "Official Duties Assessment"] = dut_link
                         save_log_data(df_update)
                         st.success("✅ Customs Summary locked!")
@@ -592,18 +601,12 @@ with col_create:
         with st.spinner("Initializing Workspace Shell..."):
             df_current = load_log_data()
             
-            # Smart sequential generator based on INV format
-            next_num = 1001
-            if not df_current.empty and "Invoice No" in df_current.columns:
-                valid_ids = df_current["Invoice No"].astype(str).tolist()
-                nums = [int(re.findall(r'\d+', x)[0]) for x in valid_ids if re.findall(r'\d+', x)]
-                if nums:
-                    next_num = max(nums) + 1
-            
-            new_id_code = f"INV-{next_num}"
+            # Generator for System Primary Key
+            new_uid = f"UID-{datetime.now().strftime('%Y%m%d%H%M%S')}"
             
             blank_row = {col: "" for col in LOG_COLUMNS}
-            blank_row["Invoice No"] = new_id_code
+            blank_row["Row_UID"] = new_uid
+            # Invoice No is intentionally left blank for manual entry
             blank_row["Shipment Status"] = "Active"
             blank_row["NALDO"] = "No"
             blank_row["Lodged Status"] = "No"
@@ -611,8 +614,8 @@ with col_create:
             
             df_new = pd.concat([df_current, pd.DataFrame([blank_row])], ignore_index=True)
             if save_log_data(df_new):
-                st.session_state["active_shell_id"] = new_id_code
-                st.toast(f"Shell {new_id_code} successfully generated!", icon="✅")
+                st.session_state["active_shell_uid"] = new_uid
+                st.toast("Empty Workspace Shell successfully generated!", icon="✅")
                 st.rerun()
 
 with col_select:
@@ -621,27 +624,34 @@ with col_select:
     
     if not df_dropdown.empty:
         for _, r in df_dropdown.iterrows():
-            s_id = str(r.get("Invoice No", ""))
+            r_uid = str(r.get("Row_UID", "")).strip()
+            s_id = str(r.get("Invoice No", "")).strip()
             s_ctns = str(r.get("Total Cartons", "")).strip()
             s_client = str(r.get("Client Name", "")).strip()
             
-            label = f"Workspace: {s_id}"
+            # Ignore rows until manual backfill is completed
+            if not r_uid: 
+                continue
+            
+            # Bind UID invisibly into the bracket for extraction
+            label = f"[{r_uid}] INV: {s_id}"
             if s_client: label += f" | Client: {s_client}"
             if s_ctns and s_ctns != "0": label += f" | Cartons: {s_ctns}"
             dropdown_options.append(label)
 
-    current_target = st.session_state.get("active_shell_id", "-- Choose Active Workspace --")
-    matching_indices = [i for i, opt in enumerate(dropdown_options) if current_target in opt]
-    default_sel_idx = matching_indices[0] if matching_indices else 0
+    current_target_uid = st.session_state.get("active_shell_uid", "")
+    matching_indices = [i for i, opt in enumerate(dropdown_options) if f"[{current_target_uid}]" in opt]
+    default_sel_idx = matching_indices[0] if matching_indices and current_target_uid else 0
 
     selected_option = st.selectbox("Select Target Workspace", dropdown_options, index=default_sel_idx, label_visibility="collapsed")
     
     if selected_option != "-- Choose Active Workspace --":
-        match = re.search(r'Workspace:\s*([^\s|]+)', selected_option)
+        # Extract UID from bracket
+        match = re.search(r'\[(.*?)\]', selected_option)
         if match:
-            st.session_state["active_shell_id"] = match.group(1)
+            st.session_state["active_shell_uid"] = match.group(1)
     else:
-        st.session_state["active_shell_id"] = ""
+        st.session_state["active_shell_uid"] = ""
 
 st.write("---")
 
