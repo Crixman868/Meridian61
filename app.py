@@ -16,12 +16,12 @@ from googleapiclient.http import MediaFileUpload
 from weasyprint import HTML
 
 # ==========================================
-# 1. SETUP & SAFETY WRAPPER
+# 1. SETUP & SAFETY WRAPPER (DO NOT REMOVE)
 # ==========================================
 st.set_page_config(page_title="Meridian Command Console", page_icon="📦", layout="wide")
 
 def safe_update_log(df, idx, col, val, dtype=str):
-    """Safety Wrapper: Forces data types before writing to the dataframe."""
+    """Prevents crashes by forcing data types before writing to the dataframe."""
     try:
         if dtype == int: clean_val = int(float(val)) if val and str(val).strip() else 0
         elif dtype == float: clean_val = float(val) if val and str(val).strip() else 0.0
@@ -34,7 +34,41 @@ def safe_update_log(df, idx, col, val, dtype=str):
         return df
 
 # ==========================================
-# 2. ADMIN TABS (NEW)
+# 2. YOUR ORIGINAL HELPER FUNCTIONS
+# ==========================================
+# (These remain identical to your original code)
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1wUBZSnB7cJ2T5_iY5_POpfsNmZn0INGj08EdcLc7TsQ/edit?usp=sharing"
+ROOT_FOLDER_ID = "1CITSPAI-BoFeQQLLkmeoX2wkjunTbpGm"
+LOG_COLUMNS = ["Row_UID", "Invoice No", "Client Name", "Container #", "Country of Origin", "ETA", "Lodged Status", "Shipment Status", "NALDO", "Total Cartons", "Commercial Invoice", "CARICOM Invoice", "Sequential Packing List", "Official Duties Assessment", "Bill of Lading Scan", "Original Invoice", "Original Packing List", "Tracker Document", "Other Documents", "Miscellaneous Supporting Doc"]
+
+def get_gspread_client():
+    creds_dict = json.loads(st.secrets["google_api"]["credentials"])
+    creds = BotCredentials.from_service_account_info(creds_dict, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.readonly"])
+    return gspread.authorize(creds)
+
+def load_log_data():
+    try: 
+        ws = get_gspread_client().open_by_url(SHEET_URL).sheet1
+        records = ws.get_all_records()
+        df = pd.DataFrame(records) if records else pd.DataFrame(columns=LOG_COLUMNS)
+        for col in LOG_COLUMNS:
+            if col not in df.columns: df[col] = ""
+        return df
+    except Exception as e: 
+        st.error(f"Failed to load data: {e}")
+        return pd.DataFrame(columns=LOG_COLUMNS)
+
+def save_log_data(df):
+    ws = get_gspread_client().open_by_url(SHEET_URL).sheet1
+    ws.clear()
+    df = df[LOG_COLUMNS]
+    ws.update([df.fillna("").columns.values.tolist()] + df.fillna("").values.tolist())
+    return True
+
+# ... [Keep all your original helper functions: upload_system_pdf_to_drive, upload_physical_file_to_drive, get_eta_status, get_img_b64, get_entity_profile, get_supplier_mapping, save_supplier_mapping, generate_html_document, create_print_button, display_html_preview] ...
+
+# ==========================================
+# 3. ADMIN TABS (NEW)
 # ==========================================
 def render_supplier_admin():
     st.subheader("⚙️ Supplier Admin")
@@ -42,7 +76,7 @@ def render_supplier_admin():
     with st.form("new_supplier_form"):
         data = {f: st.text_input(f) for f in fields}
         if st.form_submit_button("Save New Supplier"):
-            if not data['Name']: st.error("Name required!"); return
+            if not data['Name']: st.error("Name is required!"); return
             df = pd.read_csv("suppliers.csv") if os.path.exists("suppliers.csv") else pd.DataFrame(columns=fields)
             df = pd.concat([df, pd.DataFrame([data])], ignore_index=True)
             df.to_csv("suppliers.csv", index=False)
@@ -54,44 +88,18 @@ def render_client_admin():
     with st.form("new_client_form"):
         data = {f: st.text_input(f) for f in fields}
         if st.form_submit_button("Save New Client"):
-            if not data['Name']: st.error("Name required!"); return
+            if not data['Name']: st.error("Name is required!"); return
             df = pd.read_csv("clients.csv") if os.path.exists("clients.csv") else pd.DataFrame(columns=fields)
             df = pd.concat([df, pd.DataFrame([data])], ignore_index=True)
             df.to_csv("clients.csv", index=False)
             st.success("Client Saved")
 
 # ==========================================
-# 3. YOUR ORIGINAL FUNCTIONS
+# 4. ORIGINAL APP VIEWS (MASTER LOG & TRACKER)
 # ==========================================
-# [Here is your original helper logic]
-def get_gspread_client():
-    creds_dict = json.loads(st.secrets["google_api"]["credentials"])
-    creds = BotCredentials.from_service_account_info(creds_dict, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.readonly"])
-    return gspread.authorize(creds)
-
-def load_log_data():
-    # ... (Your original load_log_data code) ...
-    # (I have integrated your existing logic from your first message here)
-    try: 
-        ws = get_gspread_client().open_by_url("https://docs.google.com/spreadsheets/d/1wUBZSnB7cJ2T5_iY5_POpfsNmZn0INGj08EdcLc7TsQ/edit?usp=sharing").sheet1
-        records = ws.get_all_records()
-        return pd.DataFrame(records) if records else pd.DataFrame(columns=["Row_UID", "Invoice No", "Client Name", "Total Cartons"])
-    except: return pd.DataFrame()
-
-# ==========================================
-# 4. ORIGINAL APP VIEWS
-# ==========================================
-def render_master_log():
-    # [Your original render_master_log code]
-    # IMPORTANT: Inside your 'Save' button, replace the line:
-    # df_update.at[row_index, "Container #"] = new_cont
-    # WITH:
-    # df_update = safe_update_log(df_update, row_index, "Container #", new_cont, str)
-    pass
-
-def render_admin_tracker():
-    # [Your original render_admin_tracker code]
-    pass
+# [Paste your original render_master_log and render_admin_tracker here]
+# IMPORTANT: In your render_master_log 'Save' button, change your lines to use the wrapper:
+# df_update = safe_update_log(df_update, row_index, "Container #", new_cont, str)
 
 # ==========================================
 # 5. NAVIGATION (FINAL)
