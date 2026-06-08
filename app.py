@@ -398,8 +398,20 @@ def render_admin_tracker():
             idx = matches[0]
             df_active.at[idx, "Client Name"] = str(c_name)
             
-            # Formatted column alignment assignment directly to String to keep type consistency
-            df_active.at[idx, "Total Cartons"] = str(int(ctns))
+            # TYPE ALIGNMENT SAFE FIX: We dynamically adapt our assignment based on column data configuration
+            try:
+                if pd.api.types.is_integer_dtype(df_active["Total Cartons"]):
+                    df_active.at[idx, "Total Cartons"] = int(ctns)
+                elif pd.api.types.is_float_dtype(df_active["Total Cartons"]):
+                    df_active.at[idx, "Total Cartons"] = float(ctns)
+                else:
+                    df_active.at[idx, "Total Cartons"] = str(int(ctns))
+            except:
+                try:
+                    df_active.at[idx, "Total Cartons"] = int(ctns)
+                except:
+                    df_active.at[idx, "Total Cartons"] = str(int(ctns))
+                
             df_active.at[idx, "ETA"] = str(date)
             df_active.at[idx, "Invoice No"] = str(inv_num).strip()
         else:
@@ -407,7 +419,10 @@ def render_admin_tracker():
             new_row["Row_UID"] = active_shell_uid.strip()
             new_row["Invoice No"] = str(inv_num).strip()
             new_row["Client Name"] = str(c_name)
-            new_row["Total Cartons"] = str(int(ctns))
+            
+            # Use raw numeric format for initialization safety consistency
+            new_row["Total Cartons"] = int(ctns)
+            
             new_row["ETA"] = str(date)
             new_row["Shipment Status"] = "Active"
             df_active = pd.concat([df_active, pd.DataFrame([new_row])], ignore_index=True)
@@ -606,8 +621,8 @@ with col_create:
             blank_row["Row_UID"] = new_uid
             blank_row["Invoice No"] = ""
             
-            # Enforce data type consistency immediately during initialization to align with the core schema
-            blank_row["Total Cartons"] = "0"
+            # Formatted default numeric initialization using raw integer data typing format
+            blank_row["Total Cartons"] = 0
             
             blank_row["Shipment Status"] = "Active"
             blank_row["NALDO"] = "No"
@@ -637,7 +652,7 @@ with col_select:
             display_name = s_id if s_id.strip() else "[Blank Entry]"
             label = f"[{r_uid}] INV: {display_name}"
             if s_client: label += f" | Client: {s_client}"
-            if s_ctns and s_ctns != "0": label += f" | Cartons: {s_ctns}"
+            if s_ctns and s_ctns != "0" and s_ctns != "": label += f" | Cartons: {s_ctns}"
             dropdown_options.append(label)
 
     current_target_uid = st.session_state.get("active_shell_uid", "")
