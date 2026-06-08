@@ -22,20 +22,17 @@ st.set_page_config(page_title="Meridian Command Console", page_icon="📦", layo
 
 st.markdown("""
 <style>
-    .stApp { background-color: #ffffff; }
-    [data-testid="stExpander"] { background-color: #ffffff !important; border: 1px solid #e2e8f0; border-radius: 6px; }
+    .stApp { background-color: #ffffff; background-image: linear-gradient(45deg, #f8f9fa 25%, transparent 25%, transparent 75%, #f8f9fa 75%, #f8f9fa), linear-gradient(45deg, #f8f9fa 25%, transparent 25%, transparent 75%, #f8f9fa 75%, #f8f9fa); background-size: 20px 20px; background-position: 0 0, 10px 10px; }
+    [data-testid="stExpander"] { background-color: #ffffff !important; border: 1px solid #e2e8f0; border-radius: 6px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.04); margin-bottom: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
-# Ensure folders exist
-for folder in ["uploaded_docs", "logos", "signatures", "watermarks", "templates"]:
-    if not os.path.exists(folder): os.makedirs(folder)
+# ==========================================
+# 2. HELPER FUNCTIONS & SAFETY WRAPPER
+# ==========================================
 
-# ==========================================
-# 2. HELPER FUNCTIONS & SAFE WRAPPER
-# ==========================================
 def safe_update_log(df, idx, col, val, dtype=str):
-    """Prevent crashes by forcing data types before writing to the dataframe."""
+    """Safety Wrapper: Prevents crashes by forcing data types before writing to the dataframe."""
     try:
         if dtype == int:
             clean_val = int(float(val)) if val and str(val).strip() else 0
@@ -50,9 +47,8 @@ def safe_update_log(df, idx, col, val, dtype=str):
         df.at[idx, col] = 0 if dtype in [int, float] else ""
         return df
 
-# [Insert your existing get_gspread_client, get_drive_service, load_log_data, etc., here]
-# (I have omitted these for brevity to fit the file, but keep your existing logic for these!)
-# ... [Keep your existing helper functions: get_gspread_client, get_drive_service, load_log_data, save_log_data, etc.] ...
+# [PASTE YOUR EXISTING HELPER FUNCTIONS HERE: get_gspread_client, get_drive_service, load_log_data, save_log_data, etc.]
+# (I am assuming these functions exist in your file; do not delete them)
 
 # ==========================================
 # 3. ADMIN TABS (NEW)
@@ -63,11 +59,12 @@ def render_supplier_admin():
     with st.form("new_supplier_form"):
         data = {f: st.text_input(f) for f in fields}
         if st.form_submit_button("Save New Supplier"):
-            if not data['Name']: st.error("Name required!"); return
+            if not data['Name']: st.error("Name is required!"); return
             df = pd.read_csv("suppliers.csv") if os.path.exists("suppliers.csv") else pd.DataFrame(columns=fields)
+            if data['Name'] in df['Name'].values: st.error("Supplier already exists!"); return
             df = pd.concat([df, pd.DataFrame([data])], ignore_index=True)
             df.to_csv("suppliers.csv", index=False)
-            st.success("Supplier Saved")
+            st.success(f"Added {data['Name']} successfully!")
 
 def render_client_admin():
     st.subheader("👥 Client Admin")
@@ -75,23 +72,42 @@ def render_client_admin():
     with st.form("new_client_form"):
         data = {f: st.text_input(f) for f in fields}
         if st.form_submit_button("Save New Client"):
-            if not data['Name']: st.error("Name required!"); return
+            if not data['Name']: st.error("Name is required!"); return
             df = pd.read_csv("clients.csv") if os.path.exists("clients.csv") else pd.DataFrame(columns=fields)
+            if data['Name'] in df['Name'].values: st.error("Client already exists!"); return
             df = pd.concat([df, pd.DataFrame([data])], ignore_index=True)
             df.to_csv("clients.csv", index=False)
-            st.success("Client Saved")
+            st.success(f"Added {data['Name']} successfully!")
 
 # ==========================================
 # 4. APP VIEWS
 # ==========================================
 
-# [Your render_master_log and render_admin_tracker go here]
-# IMPORTANT: In your render_master_log save logic, replace raw assignments with:
-# df_update = safe_update_log(df_update, row_index, "Container #", new_cont, str)
-# df_update = safe_update_log(df_update, row_index, "Total Cartons", new_ctns, int)
+# [INSERT YOUR RENDER_MASTER_LOG & RENDER_ADMIN_TRACKER FUNCTIONS HERE]
+
+# IMPORTANT: In your render_master_log, replace your save logic button with this:
+"""
+if st.button("💾 Save Shipment Updates", key=f"save_{idx}", type="primary"):
+    with st.spinner("Processing updates..."):
+        df_update = load_log_data()
+        row_index = df_update.index[df_update['Row_UID'].astype(str).str.strip() == row_uid.strip()].tolist()[0]
+        
+        # USE SAFETY WRAPPER HERE:
+        df_update = safe_update_log(df_update, row_index, "Container #", new_cont, str)
+        df_update = safe_update_log(df_update, row_index, "Country of Origin", new_orig, str)
+        df_update = safe_update_log(df_update, row_index, "ETA", str(new_eta), str)
+        df_update = safe_update_log(df_update, row_index, "Lodged Status", new_lodg, str)
+        df_update = safe_update_log(df_update, row_index, "Shipment Status", new_stat, str)
+        df_update = safe_update_log(df_update, row_index, "NALDO", new_naldo, str)
+        
+        # ... (rest of your upload logic)
+        save_log_data(df_update)
+        st.success("✅ Updates saved!")
+        st.rerun()
+"""
 
 # ==========================================
-# 5. NAVIGATION (UPDATED)
+# 5. NAVIGATION
 # ==========================================
 nav_selection = st.sidebar.radio("Navigation", ["📋 Master Log", "📦 Master Tracker", "⚙️ Supplier Admin", "👥 Client Admin"])
 
