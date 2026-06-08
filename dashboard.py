@@ -3,15 +3,21 @@ import pandas as pd
 from app import load_log_data, get_eta_status, ALL_DOCS
 from datetime import datetime
 
-# 1. PAGE CONFIGURATION
-st.set_page_config(page_title="Staff Dashboard", layout="wide")
+# 1. MOBILE-OPTIMIZED PAGE CONFIG
+st.set_page_config(
+    page_title="Staff Dashboard", 
+    layout="wide", 
+    initial_sidebar_state="collapsed" # Ensures no sidebar takes up mobile space
+)
 
-# 2. STYLING (Including purple override for the table)
+# 2. MOBILE CSS: Prevents zooming issues and optimizes table font
 st.markdown("""
 <style>
     .stApp { background-color: #ffffff; }
-    /* Ensure text remains legible */
-    .stDataFrame { color: #000000 !important; }
+    /* Mobile-responsive table text size */
+    .stDataFrame { font-size: 0.85rem !important; }
+    /* Prevent mobile browser from shrinking content */
+    @viewport { width: device-width; zoom: 1.0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -37,7 +43,7 @@ def render_staff_dashboard():
 
     df["Shipment Status"] = df.apply(get_status_label, axis=1)
 
-    # Visual Transformation (Links to Checked Boxes)
+    # Visual Transformation
     doc_cols = [col for col in ALL_DOCS if col in df.columns]
     
     def get_doc_status(row):
@@ -51,30 +57,28 @@ def render_staff_dashboard():
     for col in doc_cols:
         df[col] = df[col].apply(lambda x: "✅" if str(x).startswith("http") else "⬜")
 
-    # NALDO Formatting
     df["NALDO"] = df["NALDO"].apply(lambda x: "✅" if str(x).strip().upper() == "YES" else "⬜")
     
-    # Display Grid
-    display_cols = ["Invoice No", "Client Name", "ETA", "Shipment Status", "NALDO"] + doc_cols + ["Doc Status"]
+    # MOBILE DISPLAY: Columns ordered for high-priority visibility
+    display_cols = ["Invoice No", "Shipment Status", "NALDO", "Doc Status"] 
     df_display = df[display_cols]
 
     # Conditional Styling
     def style_dashboard(row):
         styles = [''] * len(row)
-        # NALDO Purple Override
         if 'NALDO' in row.index and row['NALDO'] == '✅':
             styles[row.index.get_loc('NALDO')] = 'background-color: #9b59b6; color: white; font-weight: bold;'
-        
-        # Timeline Overdue/Urgent Highlighting
         if 'Shipment Status' in row.index:
             s = str(row['Shipment Status'])
             if 'OVERDUE' in s: styles[row.index.get_loc('Shipment Status')] = 'background-color: #ffb3b3;'
             if 'URGENT' in s: styles[row.index.get_loc('Shipment Status')] = 'background-color: #ffe6a8;'
-        
         return styles
 
-    # Render Data Grid
-    st.dataframe(df_display.style.apply(style_dashboard, axis=1), use_container_width=True, hide_index=True)
+    # Mobile-friendly data grid
+    st.dataframe(
+        df_display.style.apply(style_dashboard, axis=1), 
+        use_container_width=True, 
+        hide_index=True
+    )
 
-# 4. EXECUTION
 render_staff_dashboard()
