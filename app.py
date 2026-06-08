@@ -16,7 +16,7 @@ from googleapiclient.http import MediaFileUpload
 from weasyprint import HTML
 
 # ==========================================
-# 1. GLOBAL SETUP & SAFE WRAPPER
+# 1. SETUP & SAFETY WRAPPER
 # ==========================================
 st.set_page_config(page_title="Meridian Command Console", page_icon="📦", layout="wide")
 
@@ -29,16 +29,9 @@ def safe_update_log(df, idx, col, val, dtype=str):
         df.at[idx, col] = clean_val
         return df
     except Exception as e:
-        st.warning(f"Format mismatch in '{col}': {e}. Set to default.")
+        st.warning(f"Format mismatch in '{col}': {e}.")
         df.at[idx, col] = 0 if dtype in [int, float] else ""
         return df
-
-st.markdown("""
-<style>
-    .stApp { background-color: #ffffff; background-image: linear-gradient(45deg, #f8f9fa 25%, transparent 25%, transparent 75%, #f8f9fa 75%, #f8f9fa), linear-gradient(45deg, #f8f9fa 25%, transparent 25%, transparent 75%, #f8f9fa 75%, #f8f9fa); background-size: 20px 20px; background-position: 0 0, 10px 10px; }
-    [data-testid="stExpander"] { background-color: #ffffff !important; border: 1px solid #e2e8f0; border-radius: 6px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.04); margin-bottom: 10px; }
-</style>
-""", unsafe_allow_html=True)
 
 # ==========================================
 # 2. ADMIN TABS (NEW)
@@ -68,25 +61,45 @@ def render_client_admin():
             st.success("Client Saved")
 
 # ==========================================
-# 3. ORIGINAL FUNCTIONS & RENDERERS
+# 3. ORIGINAL FUNCTIONS
 # ==========================================
-# (Your original helper functions go here)
-# ... [Paste get_gspread_client, load_log_data, save_log_data, etc.] ...
+# [RETAINING YOUR ORIGINAL HELPER FUNCTIONS]
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1wUBZSnB7cJ2T5_iY5_POpfsNmZn0INGj08EdcLc7TsQ/edit?usp=sharing"
+ROOT_FOLDER_ID = "1CITSPAI-BoFeQQLLkmeoX2wkjunTbpGm"
+# ... (All your original get_gspread_client, load_log_data, save_log_data, upload functions here) ...
 
-# (Your original render_master_log and render_admin_tracker)
-# In your save button inside render_master_log, use: 
-# df_update = safe_update_log(df_update, row_index, "ColumnName", value, str)
+def get_gspread_client():
+    creds_dict = json.loads(st.secrets["google_api"]["credentials"])
+    return gspread.authorize(BotCredentials.from_service_account_info(creds_dict, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.readonly"]))
+
+def load_log_data():
+    try: 
+        ws = get_gspread_client().open_by_url(SHEET_URL).sheet1
+        records = ws.get_all_records()
+        return pd.DataFrame(records) if records else pd.DataFrame()
+    except: return pd.DataFrame()
 
 # ==========================================
-# 4. NAVIGATION
+# 4. RENDER FUNCTIONS (STABLE)
+# ==========================================
+def render_master_log():
+    # [YOUR ORIGINAL MASTER LOG LOGIC]
+    # IMPORTANT: In your save logic, replace:
+    # df_update.at[row_index, "Container #"] = new_cont
+    # WITH:
+    # df_update = safe_update_log(df_update, row_index, "Container #", new_cont, str)
+    pass 
+
+def render_admin_tracker():
+    # [YOUR ORIGINAL ADMIN TRACKER LOGIC]
+    pass
+
+# ==========================================
+# 5. NAVIGATION
 # ==========================================
 nav_selection = st.sidebar.radio("Navigation", ["📋 Master Log", "📦 Master Tracker", "⚙️ Supplier Admin", "👥 Client Admin"])
 
-if nav_selection == "📋 Master Log":
-    render_master_log()
-elif nav_selection == "📦 Master Tracker":
-    render_admin_tracker()
-elif nav_selection == "⚙️ Supplier Admin":
-    render_supplier_admin()
-elif nav_selection == "👥 Client Admin":
-    render_client_admin()
+if nav_selection == "📋 Master Log": render_master_log()
+elif nav_selection == "📦 Master Tracker": render_admin_tracker()
+elif nav_selection == "⚙️ Supplier Admin": render_supplier_admin()
+elif nav_selection == "👥 Client Admin": render_client_admin()
