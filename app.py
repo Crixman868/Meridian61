@@ -247,61 +247,108 @@ def save_supplier_mapping(supplier, desc, qty, price):
 # 4. DOCUMENT GENERATORS
 # ==========================================
 
-# THE NEW STANDALONE CARICOM MODULE
-def generate_caricom_printout(inv_num, date, client, supplier, compliance_data, df_items):
-    decl = "CARICOM COMMON MARKET DECLARATION: The undermentioned exporter hereby declares that the cargo specified in this commercial invoice manifest has been produced completely within the parameters of the common market rules of origin. All values and freight indices specified herein match active terminal data profiles perfectly."
+# --- NEW STANDALONE CARICOM MODULE ---
+def generate_caricom_printout(inv_num, date, client_name, client_address, supplier_name, supplier_address, bl, total_ctns, subtotal, freight, grand_total, payment_terms, additional_notes, signatory_position, compliance_data, logo_path, sig_path):
+    decl = "CARICOM COMMON MARKET DECLARATION:<br>The undermentioned exporter hereby declares that the cargo specified in this commercial invoice manifest has been produced completely within the parameters of the common market rules of origin. All values and freight indices specified herein match active terminal data profiles perfectly."
     
-    # We use landscape orientation matching your Packing List parameters
+    img_tag = f'<img src="{logo_path}" style="max-height: 50px; max-width: 120px; display: block;">' if logo_path else ''
+    sig_tag = f'<img src="{sig_path}" style="max-height: 40px; display: block;">' if sig_path else ''
+    
     html = f"""
     <html>
     <head>
         <style>
-            @page {{ size: letter landscape; margin: 0.5in; }}
-            body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 11px; color: #111; }}
-            table {{ width: 100%; border-collapse: collapse; margin-bottom: 15px; }}
-            th, td {{ border: 1px solid #111; padding: 6px 8px; text-align: left; vertical-align: top; }}
-            th {{ background-color: #f4f4f4; font-size: 9px; text-transform: uppercase; }}
-            .brand-title {{ font-size: 16px; font-weight: bold; text-transform: uppercase; margin-bottom: 5px; }}
-            .section-label {{ font-size: 9px; font-weight: bold; text-transform: uppercase; border-bottom: 1px solid #ccc; margin-bottom: 4px; padding-bottom: 3px; }}
+            @page {{ size: letter landscape; margin: 0.35in; }}
+            body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 11px; color: #111; line-height: 1.3; }}
+            .header-master {{ width: 100%; border-bottom: 2px solid #111; padding-bottom: 10px; margin-bottom: 12px; border-collapse: collapse; }}
+            .brand-title {{ font-size: 18px; font-weight: 800; text-transform: uppercase; margin: 0 0 2px 0; }}
+            .meta-title {{ font-size: 16px; font-weight: bold; text-transform: uppercase; margin: 0 0 5px 0; letter-spacing: 1px; }}
+            .section-label {{ font-size: 9px; font-weight: bold; text-transform: uppercase; border-bottom: 1px solid #ccc; padding-bottom: 3px; margin-bottom: 4px; letter-spacing: 0.5px; }}
+            table.grid {{ width: 100%; border-collapse: collapse; margin-bottom: 12px; }}
+            table.grid th {{ background-color: #f4f4f4; border: 1px solid #111; font-size: 9px; text-transform: uppercase; padding: 6px 8px; text-align: left; }}
+            table.grid td {{ border: 1px solid #111; padding: 6px 8px; font-size: 10px; font-weight: bold; }}
+            table.manifest {{ width: 100%; border-collapse: collapse; margin-bottom: 15px; }}
+            table.manifest th {{ background-color: #fff; border-top: 2px solid #111; border-bottom: 1px solid #111; font-size: 9.5px; text-transform: uppercase; padding: 6px 8px; text-align: left; }}
+            table.manifest td {{ border-bottom: 1px solid #e0e0e0; padding: 6px 8px; font-size: 10.5px; vertical-align: middle; }}
+            .footer-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; page-break-inside: avoid; }}
+            .declaration-box {{ border: 1px solid #111; padding: 8px 10px; font-size: 8.5px; text-align: justify; color: #333; }}
+            .totals-table {{ width: 100%; border-collapse: collapse; }}
+            .totals-table td {{ padding: 6px 10px; font-size: 11px; border-bottom: 1px solid #e0e0e0; text-align: right; }}
+            .totals-table .total-row td {{ font-weight: bold; font-size: 13px; border-top: 2px solid #111; border-bottom: 2px solid #111; background-color: #fff; }}
+            .signature-frame {{ height: 45px; border-bottom: 1px solid #111; width: 200px; margin-bottom: 4px; vertical-align: bottom; }}
         </style>
     </head>
     <body>
-        <h2 style="text-align: right; margin-top: 0; text-transform: uppercase;">CARICOM INVOICE</h2>
-        
-        <table>
+
+        <!-- Header -->
+        <table class="header-master">
             <tr>
-                <td style="width: 50%;">
-                    <div class="section-label">Exporter / Shipper</div>
-                    <div class="brand-title">{supplier}</div>
+                <td style="width: 70%; vertical-align: middle;">
+                    <table style="width: auto; border-collapse: collapse;">
+                        <tr>
+                            <td style="width: 130px; vertical-align: middle; padding-right: 15px;">
+                                {img_tag}
+                            </td>
+                            <td style="vertical-align: middle;">
+                                <div class="brand-title">{supplier_name}</div>
+                                <div style="font-size: 10px; color: #333;">{supplier_address}</div>
+                            </td>
+                        </tr>
+                    </table>
                 </td>
-                <td style="width: 50%;">
-                    <div class="section-label">Consignee / Buyer</div>
-                    <div style="font-size: 11px; font-weight: bold;">{client}</div>
+                <td style="width: 30%; text-align: right; vertical-align: bottom;">
+                    <div class="meta-title">CARICOM INVOICE</div>
+                    <div style="font-size: 10px; color: #111;">
+                        <strong>REF NO:</strong> {inv_num}<br>
+                        <strong>DATE:</strong> {date}
+                    </div>
                 </td>
             </tr>
         </table>
 
-        <table>
+        <!-- Exporter / Consignee Block -->
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px;">
             <tr>
-                <th>Invoice No.</th>
-                <th>Date</th>
-                <th>Customer's Order No.</th>
-                <th>Transport Mode</th>
+                <td style="width: 50%; border: 1px solid #111; padding: 8px 10px;">
+                    <div class="section-label">EXPORTER / SHIPPER</div>
+                    <div style="font-size: 10.5px; line-height: 1.4;">
+                        <strong>{supplier_name}</strong><br>
+                        {supplier_address}
+                    </div>
+                </td>
+                <td style="width: 50%; border: 1px solid #111; padding: 8px 10px; border-left: none;">
+                    <div class="section-label">CONSIGNEE / IMPORTER</div>
+                    <div style="font-size: 10.5px; line-height: 1.4;">
+                        <strong>{client_name}</strong><br>
+                        {client_address}
+                    </div>
+                </td>
+            </tr>
+        </table>
+
+        <!-- Matrix 0 -->
+        <table class="grid">
+            <tr>
+                <th>INVOICE NO.</th>
+                <th>DATE</th>
+                <th>CUSTOMER'S ORDER NO.</th>
+                <th>TRANSPORT MODE</th>
             </tr>
             <tr>
-                <td style="font-weight: bold;">{inv_num}</td>
+                <td>{inv_num}</td>
                 <td>{date}</td>
                 <td>{compliance_data.get('cust_order_no', '')}</td>
                 <td>{compliance_data.get('mode_transport', '')}</td>
             </tr>
         </table>
 
-        <table>
+        <!-- Matrix 1 -->
+        <table class="grid">
             <tr>
-                <th>Country of Origin</th>
-                <th>Port of Loading</th>
-                <th>Port of Discharge</th>
-                <th>Final Destination</th>
+                <th>COUNTRY OF ORIGIN</th>
+                <th>PORT OF LOADING</th>
+                <th>PORT OF DISCHARGE</th>
+                <th>FINAL DESTINATION</th>
             </tr>
             <tr>
                 <td>{compliance_data.get('country_origin', '')}</td>
@@ -311,28 +358,78 @@ def generate_caricom_printout(inv_num, date, client, supplier, compliance_data, 
             </tr>
         </table>
 
-        <table>
-            <thead>
-                <tr>
-                    <th style="width: 60%;">Specification of Commodities / Cargo Description</th>
-                    <th style="text-align: center; width: 15%;">Quantity</th>
-                    <th style="text-align: right; width: 25%;">Total Value (USD)</th>
-                </tr>
-            </thead>
-            <tbody>
-                {"".join([f"<tr><td>{row.get('Description','')}</td><td style='text-align: center;'>{row.get('Qty','')}</td><td style='text-align: right;'>${row.get('Total Foreign (USD)', '0.00')}</td></tr>" for _, row in df_items.iterrows()])}
-            </tbody>
+        <!-- Matrix 2 (NEW) -->
+        <table class="grid">
+            <tr>
+                <th>BILL OF LADING (B/L#)</th>
+                <th>TOTAL VOLUME ALLOCATION</th>
+                <th>PAYMENT OPERATIONS TERMS</th>
+            </tr>
+            <tr>
+                <td>{bl}</td>
+                <td>{total_ctns} CTNS</td>
+                <td>{payment_terms}</td>
+            </tr>
         </table>
 
-        <div style="border: 1px solid #111; padding: 10px; font-size: 9px; text-align: justify; margin-top: 20px;">
-            <strong>{decl}</strong>
-        </div>
+        <!-- Manifest Table -->
+        <table class="manifest">
+            <tr>
+                <th style="width: 60%;">SPECIFICATION OF COMMODITIES / CARGO DESCRIPTION</th>
+                <th style="text-align: center; width: 15%;">QUANTITY COUNT</th>
+                <th style="text-align: right; width: 10%;">UNIT PRICE (USD)</th>
+                <th style="text-align: right; width: 15%;">TOTAL VALUE (USD)</th>
+            </tr>
+            <tr>
+                <td style="font-weight: bold;">{additional_notes} as per invoice # {inv_num}, dated: {date}</td>
+                <td style="text-align: center;"></td>
+                <td style="text-align: right;"></td>
+                <td style="text-align: right; font-weight: bold;">${subtotal:,.2f}</td>
+            </tr>
+        </table>
+
+        <!-- Footer / Signature / Declarations Block -->
+        <table class="footer-table">
+            <tr>
+                <td style="width: 60%; padding-right: 20px; vertical-align: top;">
+                    <div class="declaration-box">
+                        <strong>{decl}</strong>
+                    </div>
+                    
+                    <div style="margin-top: 15px;">
+                        <div style="font-size: 8px; color: #111; text-transform: uppercase; font-weight: bold;">AUTHORIZED VENDOR AUTHENTICATION SIGNATURE</div>
+                        <div class="signature-frame">
+                            {sig_tag}
+                        </div>
+                        <div style="font-size: 9px; font-weight: bold; color: #111; margin-top: 2px;">{signatory_position}</div>
+                    </div>
+                </td>
+                
+                <td style="width: 40%; vertical-align: top;">
+                    <table class="totals-table">
+                        <tr>
+                            <td style="text-align: left;">Merchandise Subtotal:</td>
+                            <td><strong>${subtotal:,.2f}</strong></td>
+                        </tr>
+                        <tr>
+                            <td style="text-align: left;">Ocean Freight Charges:</td>
+                            <td>${freight:,.2f}</td>
+                        </tr>
+                        <tr class="total-row">
+                            <td style="text-align: left;">INVOICE TOTAL CF:</td>
+                            <td>${grand_total:,.2f} USD</td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+
     </body>
     </html>
     """
     return html
 
-# ORIGINAL HTML GENERATOR FOR STANDARD INVOICE / DUTIES / PACKING
+# --- ORIGINAL HTML GENERATOR FOR STANDARD INVOICE / DUTIES / PACKING ---
 def generate_html_document(title, inv_no, date, client, c_addr, supplier, s_profile, bl, total_ctns, df, total_val, freight=None, additional_notes="", payment_terms="", signatory_position="", is_packing=False, is_duties=False, duty_data=None):
     logo_path = get_img_b64(f"logos/{s_profile.get('Name', '')}_logo.png")
     sig_path = get_img_b64(f"signatures/{s_profile.get('Name', '')}_sig.png")
@@ -620,7 +717,6 @@ def render_admin_tracker():
                 final_dest = cc1.text_input("Final Destination", "Trinidad & Tobago")
                 mode_transport = cc2.selectbox("Mode", ["SHIP", "AIR", "COURIER", "OTHER"])
 
-            # Collect inputs locally for this execution
             comp_data = {
                 "cust_order_no": cust_order_no, 
                 "country_origin": country_origin,
@@ -630,16 +726,30 @@ def render_admin_tracker():
                 "mode_transport": mode_transport
             }
 
+            logo_path = get_img_b64(f"logos/{supplier_profile.get('Name', '')}_logo.png")
+            sig_path = get_img_b64(f"signatures/{supplier_profile.get('Name', '')}_sig.png")
+
             if st.button("⚙️ Preview CARICOM"): 
-                st.session_state["h_car"] = generate_caricom_printout(invoice_num, invoice_date, client_name, supplier_name, comp_data, df_clean)
+                st.session_state["h_car"] = generate_caricom_printout(
+                    invoice_num, invoice_date, client_name, client_profile.get("Address",""), 
+                    supplier_name, supplier_profile.get("Address",""), bl_number, container_total_ctns, 
+                    subtotal_foreign, freight_cost, subtotal_foreign + freight_cost, 
+                    payment_terms, additional_notes, signatory_position, comp_data, 
+                    logo_path, sig_path
+                )
             
             if "h_car" in st.session_state: 
                 display_html_preview(st.session_state["h_car"])
                 
                 if st.button("💾 Save CARICOM Invoice Only", type="primary", use_container_width=True):
                     with st.spinner("Locking CARICOM Invoice..."):
-                        # Re-generate to ensure latest comp_data is pushed
-                        html_car_final = generate_caricom_printout(invoice_num, invoice_date, client_name, supplier_name, comp_data, df_clean)
+                        html_car_final = generate_caricom_printout(
+                            invoice_num, invoice_date, client_name, client_profile.get("Address",""), 
+                            supplier_name, supplier_profile.get("Address",""), bl_number, container_total_ctns, 
+                            subtotal_foreign, freight_cost, subtotal_foreign + freight_cost, 
+                            payment_terms, additional_notes, signatory_position, comp_data, 
+                            logo_path, sig_path
+                        )
                         link = upload_system_pdf_to_drive(html_car_final, f"{(invoice_num if invoice_num.strip() else active_shell_uid)}_CARICOM.pdf", client_name, invoice_num if invoice_num.strip() else active_shell_uid)
                         
                         df_update = load_log_data()
