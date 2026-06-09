@@ -106,6 +106,13 @@ def load_log_data():
             return pd.DataFrame(columns=LOG_COLUMNS)
         
         df = pd.DataFrame(records)
+        
+        # --- THE FIX: FORCE STRINGS IMMEDIATELY ON LOAD ---
+        # This stops Pandas from treating 'Total Cartons' or 'Invoice No' as integers
+        for col in df.columns:
+            df[col] = df[col].astype(str).replace(['nan', 'None', '<NA>'], '')
+        # --------------------------------------------------
+            
         for col in LOG_COLUMNS:
             if col not in df.columns:
                 df[col] = ""
