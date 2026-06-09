@@ -83,7 +83,7 @@ LOG_COLUMNS = [
 ]
 
 # ==========================================
-# 3. HELPER FUNCTIONS (Preserved Verbatim)
+# 3. HELPER FUNCTIONS
 # ==========================================
 def get_gspread_client():
     creds_dict = json.loads(st.secrets["google_api"]["credentials"])
@@ -118,10 +118,17 @@ def save_log_data(df):
     try:
         ws = get_gspread_client().open_by_url(SHEET_URL).sheet1
         ws.clear()
+        
+        # --- HARD FORCE STRING CONVERSION (Prevents Google Sheet Int64 crashes) ---
+        df = df.copy()
+        for col in df.columns:
+            df[col] = df[col].astype(str).replace(['nan', 'None'], '')
+        # -------------------------------------------------------------------------
+            
         for col in LOG_COLUMNS:
             if col not in df.columns: df[col] = ""
         df = df[LOG_COLUMNS]
-        ws.update([df.fillna("").columns.values.tolist()] + df.fillna("").values.tolist())
+        ws.update([df.columns.values.tolist()] + df.values.tolist())
         return True
     except Exception as e:
         st.error(f"Failed to sync with Google Sheets: {e}")
@@ -234,7 +241,8 @@ def save_supplier_mapping(supplier, desc, qty, price):
     df = pd.concat([df, pd.DataFrame([{"Supplier": supplier, "DescCol": desc, "QtyCol": qty, "PriceCol": price}])], ignore_index=True)
     df.to_csv("supplier_mappings.csv", index=False)
 
-def generate_html_document(title, inv_no, date, client, c_addr, supplier, s_profile, bl, total_ctns, df, total_val, freight=None, additional_notes="", payment_terms="", signatory_position="", is_packing=False, is_caricom=False, is_duties=False, duty_data=None):
+# Added compliance_data to signature
+def generate_html_document(title, inv_no, date, client, c_addr, supplier, s_profile, bl, total_ctns, df, total_val, freight=None, additional_notes="", payment_terms="", signatory_position="", is_packing=False, is_caricom=False, is_duties=False, duty_data=None, compliance_data=None):
     logo_path = get_img_b64(f"logos/{s_profile.get('Name', '')}_logo.png")
     sig_path = get_img_b64(f"signatures/{s_profile.get('Name', '')}_sig.png")
 
@@ -265,7 +273,30 @@ def generate_html_document(title, inv_no, date, client, c_addr, supplier, s_prof
             total = f"{row.get('Total Foreign (USD)', ''):.2f}" if pd.notna(row.get('Total Foreign (USD)')) and row.get('Total Foreign (USD)') != "" else ""
             items.append({"Description": desc, "Qty": qty, "UnitPrice": price, "Total": total})
             
-        rendered_html = template.render({"title": title, "inv_no": inv_no, "date": date, "client_name": client, "client_address": c_addr, "supplier_name": supplier, "supplier_address": s_profile.get("Address", "Main Office Hub"), "bl": bl, "total_ctns": total_ctns, "payment_terms": payment_terms, "additional_notes": additional_notes, "is_caricom": is_caricom, "primary_hex": s_profile.get("PrimaryHex", "#0A2240"), "logo_path": logo_path, "sig_path": sig_path, "signatory_position": signatory_position, "subtotal": f"{total_val:,.2f}", "freight": (f"{freight:,.2f}" if freight else None), "grand_total": f"{(total_val + (freight or 0)):,.2f}", "items": items})
+        context = {
+            "title": title, "inv_no": inv_no, "date": date, "client_name": client, 
+            "client_address": c_addr, "supplier_name": supplier, 
+            "supplier_address": s_profile.get("Address", "Main Office Hub"), 
+            "bl": bl, "total_ctns": total_ctns, "payment_terms": payment_terms, 
+            "additional_notes": additional_notes, "is_caricom": is_caricom, 
+            "primary_hex": s_profile.get("PrimaryHex", "#0A2240"), 
+            "logo_path": logo_path, "sig_path": sig_path, 
+            "signatory_position": signatory_position, 
+            "subtotal": f"{total_val:,.2f}", 
+            "freight": (f"{freight:,.2f}" if freight else None), 
+            "grand_total": f"{(total_val + (freight or 0)):,.2f}", 
+            "items": items
+        }
+        
+        # Inject the new Custom Compliance Dictionary
+        if compliance_data:
+            context.update(compliance_data)
+            
+        # Inject the Declaration Text logic
+        if is_caricom:
+            context["declaration_text"] = "CARICOM COMMON MARKET DECLARATION: The undermentioned exporter hereby declares that the cargo specified in this commercial invoice manifest has been produced completely within the parameters of the common market rules of origin. All values and freight indices specified herein match active terminal data profiles perfectly."
+        
+        rendered_html = template.render(context)
         rendered_html = re.sub(r'>\$\s*<', '><', rendered_html)
 
     return rendered_html
@@ -389,6 +420,7 @@ def render_admin_tracker():
     if not match_row.empty:
         current_inv = str(match_row.iloc[0].get('Invoice No', ''))
 
+    # Simplified sync metadata since save_log_data handles string enforcement safely
     def sync_base_metadata_to_log(df_active, inv_num, c_name, ctns, date):
         df_active['Row_UID'] = df_active['Row_UID'].astype(str).str.strip()
         matches = df_active.index[df_active['Row_UID'] == active_shell_uid.strip()].tolist()
@@ -396,21 +428,7 @@ def render_admin_tracker():
         if matches:
             idx = matches[0]
             df_active.at[idx, "Client Name"] = str(c_name)
-            
-            # TYPE ALIGNMENT SAFE FIX: We dynamically adapt our assignment based on column data configuration
-            try:
-                if pd.api.types.is_integer_dtype(df_active["Total Cartons"]):
-                    df_active.at[idx, "Total Cartons"] = int(ctns)
-                elif pd.api.types.is_float_dtype(df_active["Total Cartons"]):
-                    df_active.at[idx, "Total Cartons"] = float(ctns)
-                else:
-                    df_active.at[idx, "Total Cartons"] = str(int(ctns))
-            except:
-                try:
-                    df_active.at[idx, "Total Cartons"] = int(ctns)
-                except:
-                    df_active.at[idx, "Total Cartons"] = str(int(ctns))
-                
+            df_active.at[idx, "Total Cartons"] = str(ctns)
             df_active.at[idx, "ETA"] = str(date)
             df_active.at[idx, "Invoice No"] = str(inv_num).strip()
         else:
@@ -418,10 +436,7 @@ def render_admin_tracker():
             new_row["Row_UID"] = active_shell_uid.strip()
             new_row["Invoice No"] = str(inv_num).strip()
             new_row["Client Name"] = str(c_name)
-            
-            # Use raw numeric format for initialization safety consistency
-            new_row["Total Cartons"] = int(ctns)
-            
+            new_row["Total Cartons"] = str(ctns)
             new_row["ETA"] = str(date)
             new_row["Shipment Status"] = "Active"
             df_active = pd.concat([df_active, pd.DataFrame([new_row])], ignore_index=True)
@@ -531,15 +546,44 @@ def render_admin_tracker():
                         st.success("✅ Commercial Invoice locked!")
                 
         with t_car:
+            # === NEW: THE COMPLIANCE EXPANDER ===
+            with st.expander("📝 Customs Compliance Details (CARICOM Only)", expanded=True):
+                cc1, cc2, cc3 = st.columns(3)
+                with cc1:
+                    cust_order_no = st.text_input("Customer's Order No.")
+                    port_loading = st.text_input("Port of Loading")
+                with cc2:
+                    country_origin = st.text_input("Country of Origin of Goods", value="USA")
+                    port_discharge = st.text_input("Port of Discharge")
+                with cc3:
+                    final_dest = st.text_input("Final Destination", value="Trinidad & Tobago")
+                    mode_transport = st.selectbox("Mode of Transport", ["SHIP", "AIR", "COURIER", "OTHER"])
+
+            # Create the dictionary from inputs
+            comp_data = {
+                "cust_order_no": cust_order_no,
+                "country_origin": country_origin,
+                "final_dest": final_dest,
+                "port_loading": port_loading,
+                "port_discharge": port_discharge,
+                "mode_transport": mode_transport
+            }
+            # ====================================
+
             if st.button("⚙️ Preview CARICOM"): 
                 df_caricom = pd.DataFrame([{"Description": f"{additional_notes} as per invoice # {invoice_num}, dated: {invoice_date}", "Qty": "", "UnitPrice": "", "Total Foreign (USD)": ""}])
-                st.session_state["h_car"] = generate_html_document("CARICOM INVOICE", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_caricom, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_caricom=True)
+                st.session_state["h_car"] = generate_html_document("CARICOM INVOICE", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_caricom, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_caricom=True, compliance_data=comp_data)
+            
             if "h_car" in st.session_state: 
                 display_html_preview(st.session_state["h_car"])
                 
                 if st.button("💾 Save CARICOM Invoice Only", type="primary", use_container_width=True):
                     with st.spinner("Locking CARICOM Invoice PDF to Drive Vault..."):
-                        car_link = upload_system_pdf_to_drive(st.session_state["h_car"], f"{(invoice_num if invoice_num.strip() else active_shell_uid)}_CARICOM_Invoice.pdf", client_name, invoice_num if invoice_num.strip() else active_shell_uid)
+                        # Re-generate to ensure latest comp_data is pushed if changes were made
+                        df_caricom = pd.DataFrame([{"Description": f"{additional_notes} as per invoice # {invoice_num}, dated: {invoice_date}", "Qty": "", "UnitPrice": "", "Total Foreign (USD)": ""}])
+                        h_car_final = generate_html_document("CARICOM INVOICE", invoice_num, invoice_date, client_name, client_profile.get("Address",""), supplier_name, supplier_profile, bl_number, container_total_ctns, df_caricom, subtotal_foreign, freight_cost, additional_notes, payment_terms, signatory_position, is_caricom=True, compliance_data=comp_data)
+                        
+                        car_link = upload_system_pdf_to_drive(h_car_final, f"{(invoice_num if invoice_num.strip() else active_shell_uid)}_CARICOM_Invoice.pdf", client_name, invoice_num if invoice_num.strip() else active_shell_uid)
                         df_update = load_log_data()
                         df_update = sync_base_metadata_to_log(df_update, invoice_num, client_name, container_total_ctns, invoice_date)
                         idx = df_update.index[df_update['Row_UID'].astype(str).str.strip() == active_shell_uid.strip()].tolist()[0]
@@ -617,12 +661,10 @@ def render_supplier_admin():
             if not data['Name']: 
                 st.error("Name is required!")
             else:
-                # Update Local CSV to ensure core functions reading it don't break
                 df_csv = pd.read_csv("suppliers.csv") if os.path.exists("suppliers.csv") else pd.DataFrame(columns=fields)
                 df_csv = pd.concat([df_csv, pd.DataFrame([data])], ignore_index=True)
                 df_csv.to_csv("suppliers.csv", index=False)
                 
-                # Update Google Sheet Tab
                 try:
                     ws = get_gspread_client().open_by_url(SHEET_URL).worksheet("Suppliers")
                     ws.clear()
@@ -641,12 +683,10 @@ def render_client_admin():
             if not data['Name']: 
                 st.error("Name is required!")
             else:
-                # Update Local CSV to ensure core functions reading it don't break
                 df_csv = pd.read_csv("clients.csv") if os.path.exists("clients.csv") else pd.DataFrame(columns=fields)
                 df_csv = pd.concat([df_csv, pd.DataFrame([data])], ignore_index=True)
                 df_csv.to_csv("clients.csv", index=False)
                 
-                # Update Google Sheet Tab
                 try:
                     ws = get_gspread_client().open_by_url(SHEET_URL).worksheet("Clients")
                     ws.clear()
@@ -655,18 +695,15 @@ def render_client_admin():
                 except Exception as e:
                     st.warning(f"Saved locally, but missing 'Clients' tab on Google Sheet to sync: {e}")
 
-
 # ==========================================
 # 6. TOP NAVIGATION & WORKSPACE ROUTER
 # ==========================================
 
-# Initialize Session State for Active Module
 if "active_module" not in st.session_state:
     st.session_state["active_module"] = "📋 Master Log"
 
 st.write("<br>", unsafe_allow_html=True)
 
-# Horizontal Navigation Buttons (Matching image_98184c.png)
 col_nav1, col_nav2, col_nav3, col_nav4 = st.columns(4)
 with col_nav1:
     if st.button("📋 Master Log", use_container_width=True): st.session_state["active_module"] = "📋 Master Log"
@@ -679,24 +716,18 @@ with col_nav4:
 
 st.write("---")
 
-# --- TOP SHELL PIPELINE NAVIGATOR ---
 col_create, col_select = st.columns([1, 2])
 
 with col_create:
     if st.button("➕ Create Empty Shipment Shell", type="primary", use_container_width=True):
         with st.spinner("Initializing Workspace Shell..."):
             df_current = load_log_data()
-            
             new_uid = f"UID-{datetime.now().strftime('%Y%m%d%H%M%S')}"
             
             blank_row = {col: "" for col in LOG_COLUMNS}
             blank_row["Row_UID"] = new_uid
-            # Invoice explicitly cleared out for clean shell
             blank_row["Invoice No"] = ""
-            
-            # Formatted default numeric initialization using raw integer data typing format
             blank_row["Total Cartons"] = 0
-            
             blank_row["Shipment Status"] = "Active"
             blank_row["NALDO"] = "No"
             blank_row["Lodged Status"] = "No"
