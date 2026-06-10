@@ -15,7 +15,7 @@ st.set_page_config(
 )
 
 # ==========================================
-# 2. CSS FOR DEPTH, ALIGNMENT, AND SPACING
+# 2. CSS FOR DEPTH, ALIGNMENT, SPACING & LOCKED HEADERS
 # ==========================================
 st.markdown("""
 <style>
@@ -32,9 +32,11 @@ st.markdown("""
         border: 1px solid #cbd5e1;
         padding: 4px;
         background-color: white;
+        /* Ensure the container handles scrolling internally */
+        overflow: auto !important; 
     }
 
-    /* Center/Middle align headers and enforce text wrap */
+    /* Center/Middle align headers, enforce text wrap, AND LOCK HEADERS */
     div[data-testid="stDataFrame"] th {
         text-align: center !important;
         vertical-align: middle !important;
@@ -44,6 +46,12 @@ st.markdown("""
         font-size: 12px !important;
         font-weight: 700 !important;
         border-bottom: 2px solid #cbd5e1 !important;
+        
+        /* THE HEADER LOCK (Sticky positioning) */
+        position: sticky !important;
+        top: 0px !important;
+        z-index: 10 !important;
+        box-shadow: 0px 2px 2px -1px rgba(0, 0, 0, 0.4); /* Subtle shadow beneath locked headers */
     }
     
     /* Center/Middle align cells */
