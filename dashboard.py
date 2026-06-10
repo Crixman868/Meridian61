@@ -15,7 +15,7 @@ st.set_page_config(
 )
 
 # ==========================================
-# 2. CSS FOR DEPTH, ALIGNMENT, SPACING & LOCKED HEADERS
+# 2. CSS FOR DEPTH, ALIGNMENT, AND SPACING
 # ==========================================
 st.markdown("""
 <style>
@@ -32,11 +32,10 @@ st.markdown("""
         border: 1px solid #cbd5e1;
         padding: 4px;
         background-color: white;
-        /* Ensure the container handles scrolling internally */
-        overflow: auto !important; 
     }
 
-    /* Center/Middle align headers, enforce text wrap, AND LOCK HEADERS */
+    /* Center/Middle align headers and enforce text wrap */
+    /* Note: Streamlit natively locks headers when a height is passed to st.dataframe */
     div[data-testid="stDataFrame"] th {
         text-align: center !important;
         vertical-align: middle !important;
@@ -46,12 +45,6 @@ st.markdown("""
         font-size: 12px !important;
         font-weight: 700 !important;
         border-bottom: 2px solid #cbd5e1 !important;
-        
-        /* THE HEADER LOCK (Sticky positioning) */
-        position: sticky !important;
-        top: 0px !important;
-        z-index: 10 !important;
-        box-shadow: 0px 2px 2px -1px rgba(0, 0, 0, 0.4); /* Subtle shadow beneath locked headers */
     }
     
     /* Center/Middle align cells */
@@ -78,7 +71,22 @@ def render_staff_dashboard():
         
     df = df_raw.copy()
 
-    # --- A. Timeline Logic & Status Processing ---
+    # --- A. DATA SANITIZATION (Ghost Rows & Delivered Purge) ---
+    
+    # 1. Eradicate Ghost Rows (Rows with no real Row_UID)
+    df['Row_UID'] = df['Row_UID'].astype(str).str.strip()
+    df = df[(df['Row_UID'] != '') & (df['Row_UID'] != 'nan') & (df['Row_UID'] != 'None')]
+    
+    # 2. Purge "Delivered" Shipments from the Operational Floor
+    df['Shipment Status'] = df['Shipment Status'].astype(str).str.strip()
+    df = df[df['Shipment Status'].str.upper() != 'DELIVERED']
+
+    # Stop if the sweep removed everything
+    if df.empty:
+        st.info("No active inbound shipments to display.")
+        return
+
+    # --- B. Timeline Logic & Status Processing ---
     def get_status_label(row):
         ship_status = str(row.get("Shipment Status", ""))
         raw_eta = row.get("ETA")
@@ -87,10 +95,10 @@ def render_staff_dashboard():
         label, _ = get_eta_status(current_date, ship_status)
         return label
 
-    # Apply Status first so we calculate it using the raw date
+    # Apply Status using raw date
     df["Status"] = df.apply(get_status_label, axis=1)
 
-    # --- B. Strict DD/MM/YYYY ETA Formatting ---
+    # --- C. Strict DD/MM/YYYY ETA Formatting ---
     def format_eta(row):
         raw_eta = row.get("ETA", "")
         if pd.isna(raw_eta) or str(raw_eta).strip() == "": 
@@ -102,7 +110,7 @@ def render_staff_dashboard():
             
     df["ETA"] = df.apply(format_eta, axis=1)
 
-    # --- C. Visual Transformation (Doc Links to ✅/⬜) ---
+    # --- D. Visual Transformation (Doc Links to ✅/⬜) ---
     doc_cols = [col for col in ALL_DOCS if col in df.columns]
     
     def get_doc_status(row):
@@ -118,17 +126,17 @@ def render_staff_dashboard():
 
     df["NALDO"] = df["NALDO"].apply(lambda x: "✅" if str(x).strip().upper() == "YES" else "⬜")
     
-    # --- D. Header Ordering & Display Grid Creation ---
+    # --- E. Header Ordering & Display Grid Creation ---
     display_cols = ["Total Cartons", "Status", "NALDO", "ETA", "Container #", "Client Name", "Country of Origin", "Invoice No"] + doc_cols + ["Doc Status"]
     df_display = df[display_cols].copy()
     df_display.columns = ["TOTAL CTNS", "Status", "NALDO", "ETA", "Container #", "Client", "Origin", "Invoice#"] + doc_cols + ["Doc Status"]
 
-    # --- E. The "Active Box" Dynamic Buffer ---
-    # Append exactly 2 blank rows to the bottom of the dataset
+    # --- F. The "Active Box" Dynamic Buffer ---
+    # Append exactly 2 blank rows to the bottom of the sanitized dataset
     blank_row = pd.DataFrame([{col: "" for col in df_display.columns}])
     df_display = pd.concat([df_display, blank_row, blank_row], ignore_index=True)
 
-    # --- F. Full-Row Conditional Styling & NALDO Override ---
+    # --- G. Full-Row Conditional Styling & NALDO Override ---
     def style_dashboard(row):
         styles = [''] * len(row)
         
@@ -152,7 +160,7 @@ def render_staff_dashboard():
             
         return styles
 
-    # --- G. Column Width Optimization (Tightening Binary Columns) ---
+    # --- H. Column Width Optimization (Tightening Binary Columns) ---
     column_config = {
         "TOTAL CTNS": st.column_config.Column("TOTAL CTNS", pinned=True, width="small"),
         "Status": st.column_config.Column("Status", width="medium"),
@@ -168,13 +176,13 @@ def render_staff_dashboard():
     for col in doc_cols:
         column_config[col] = st.column_config.Column(col, width="small")
 
-    # --- H. Render the Locked Data Grid ---
+    # --- I. Render the Locked Data Grid ---
     st.dataframe(
         df_display.style.apply(style_dashboard, axis=1), 
         use_container_width=True, 
         hide_index=True,
         column_config=column_config,
-        height=700 
+        height=700 # Streamlit natively locks headers when height is provided
     )
 
 # ==========================================
