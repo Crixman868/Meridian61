@@ -144,9 +144,9 @@
             font-size: 12px;
         }
 
-        /* Verified Signature Formatting - EXPANDED */
+        /* Verified Signature Formatting - SCALED UP 25% */
         .signature-frame {
-            height: 85px; /* Expanded spatial allocation for realistic stamp size */
+            height: 105px; /* Scaled up 25% from 85px */
             border-bottom: 1px solid #2c3e50;
             margin-bottom: 4px;
             vertical-align: bottom;
@@ -257,7 +257,7 @@
                         
                         <div class="signature-frame">
                             {% if sig_path %}
-                                <img src="{{ sig_path }}" style="max-height: 80px; display: inline-block;">
+                                <img src="{{ sig_path }}" style="max-height: 100px; display: inline-block;">
                             {% endif %}
                         </div>
                         <div style="font-size: 9px; color: #4a5568; margin-top: 4px;">
