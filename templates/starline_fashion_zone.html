@@ -144,9 +144,9 @@
             font-size: 12px;
         }
 
-        /* Verified Signature Formatting - SCALED UP 25% */
+        /* Verified Signature Formatting - SET TO 150px LIMIT */
         .signature-frame {
-            height: 105px; /* Scaled up 25% from 85px */
+            height: 160px; /* Expanded spatial allocation to comfortably fit 150px asset */
             border-bottom: 1px solid #2c3e50;
             margin-bottom: 4px;
             vertical-align: bottom;
@@ -257,7 +257,7 @@
                         
                         <div class="signature-frame">
                             {% if sig_path %}
-                                <img src="{{ sig_path }}" style="max-height: 100px; display: inline-block;">
+                                <img src="{{ sig_path }}" style="max-height: 150px; display: inline-block;">
                             {% endif %}
                         </div>
                         <div style="font-size: 9px; color: #4a5568; margin-top: 4px;">
