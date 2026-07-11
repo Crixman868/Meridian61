@@ -810,7 +810,8 @@ def render_admin_tracker():
                     calculated_rows = []
                     box_cursor = 1
                     for idx, row in edited_pck_df.iterrows():
-                        assigned_ctns = int(row.get("TOTAL CTNS", 0))
+                        # --- APPLIED SURGICAL FIX: Safely parse decimal strings, commas, or NaN to int ---
+                        assigned_ctns = int(float(str(row.get("TOTAL CTNS", 0)).replace(",", "").strip() or 0))
                         if assigned_ctns > 0:
                             end_box = box_cursor + assigned_ctns - 1
                             range_str = f"{box_cursor}-{end_box}" if box_cursor != end_box else f"{box_cursor}"
